@@ -89,3 +89,4 @@ temp/
 # !logs/.gitkeep
 # !outputs/.gitkeep
 src/build_hybrid_database.py
+src/config.py
