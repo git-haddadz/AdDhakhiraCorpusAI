@@ -90,7 +90,7 @@ For Google Colab free usage, the custom notebook defaults to a smaller quantized
 
 - Google Colab: [AdDhakhira_WebApp_Custom.ipynb](https://colab.research.google.com/github/git-haddadz/AdDhakhiraCorpusAI/blob/main/AdDhakhira_WebApp_Custom.ipynb)
 
-This default model is less accurate than the project’s optimal setup. If you have enough compute (local machine or stronger Colab setup), switch the notebook models back to `Qwen/Qwen3-Next-80B-A3B-Instruct-FP8` to reproduce the project’s optimal conditions.
+This default model `Qwen/Qwen2.5-7B-Instruct-AWQ` is less accurate than the project’s optimal setup. If you have enough compute (local machine or stronger Colab setup), switch the notebook models back to `Qwen/Qwen3-Next-80B-A3B-Instruct-FP8` to reproduce the project’s optimal conditions.
 
 ## 8) Is the project modifiable?
 
