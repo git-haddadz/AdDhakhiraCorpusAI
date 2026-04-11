@@ -25,3 +25,4 @@ faiss-cpu==1.8.0.post1
 accelerate==1.7.0
 einops==0.8.1
 datasets==4.5.0
+requests==2.32.3

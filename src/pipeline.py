@@ -104,7 +104,6 @@ def build_final_report(
         model_path=MODEL_EXTRACTOR_PATH,
         num_gpus=NUM_GPUS_EXTRACTOR,
         max_model_len=MAX_MODEL_LEN_EXTRACTOR,
-        model_role="extractor",
     )
 
     processing_question = question
@@ -112,12 +111,11 @@ def build_final_report(
     if auto_translate_question_to_arabic and not is_mostly_arabic(question):
         processing_question = translate_question_to_arabic(
             extractor_model,
-            extractor_tokenizer,
             question,
         )
         translation_applied = processing_question != question
 
-    keywords = extract_keywords(extractor_model, extractor_tokenizer, processing_question)
+    keywords = extract_keywords(extractor_model, processing_question)
     if len(keywords) < 4:
         raise ValueError(f"Too few valid Arabic keywords extracted: {keywords}")
 
@@ -167,7 +165,6 @@ def build_final_report(
         model_path=MODEL_REASONER_PATH,
         num_gpus=NUM_GPUS_REASONER,
         max_model_len=reasoner_model_len,
-        model_role="reasoner",
     )
 
     context, source_page_map = build_reasoning_context(
@@ -198,14 +195,12 @@ def build_final_report(
     def _evaluate_answer(candidate_answer: Dict) -> Dict[str, object]:
         primary = assess_answer_consistency(
             reasoner_model,
-            reasoner_tokenizer,
             processing_question,
             context,
             candidate_answer,
         )
         adversarial = assess_answer_consistency(
             reasoner_model,
-            reasoner_tokenizer,
             processing_question,
             context,
             candidate_answer,
@@ -221,7 +216,6 @@ def build_final_report(
         try:
             generated = generate_pedagogical_answer(
                 reasoner_model,
-                reasoner_tokenizer,
                 processing_question,
                 context,
                 extra_system_rules=extra_rules,
@@ -388,7 +382,7 @@ def build_final_report(
                     "Le contrôle de cohérence a détecté une contradiction persistante entre la réponse générée et les extraits.",
                 )
     if translate_to_french:
-        translations = translate_pages_to_french(reasoner_model, reasoner_tokenizer, top_pages)
+        translations = translate_pages_to_french(reasoner_model, top_pages)
         for page, tr in zip(top_pages, translations):
             page["translation_fr"] = tr
     report = print_final(

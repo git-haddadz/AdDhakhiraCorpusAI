@@ -3,7 +3,7 @@ import time
 
 from src.config import AUTO_TRANSLATE_QUESTION_TO_ARABIC, TRANSLATE_TOP_CHUNKS_TO_FRENCH
 from src.pipeline import build_final_report
-from src.reporting import build_timing_message, print_startup_message, write_output_with_timing
+from src.reporting import print_startup_message, write_output_with_timing
 
 
 def parse_cli_args() -> argparse.Namespace:
@@ -53,5 +53,3 @@ def main() -> None:
     )
     elapsed_seconds = time.time() - start_time
     write_output_with_timing(final_report, elapsed_seconds=elapsed_seconds, output_path=args.output)
-    print(final_report, flush=True)
-    print(f"\n{build_timing_message(elapsed_seconds)}", flush=True)

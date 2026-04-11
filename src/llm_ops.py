@@ -1,5 +1,4 @@
 import json
-import logging
 import re
 from typing import Dict, List, Optional
 
@@ -14,14 +13,11 @@ from src.config import (
 from src.llm_backend import CustomBackend, GeminiBackend, LLMBackend
 from src.text_utils import ARABIC_WORD_RE
 
-LOGGER = logging.getLogger(__name__)
-
 
 def instantiate_model(
     model_path: str,
     num_gpus: int = 1,
     max_model_len: int = 1024,
-    model_role: str = "extractor",
 ):
     if LLM_BACKEND == "gemini_api":
         backend = GeminiBackend(model_name=model_path, api_key=GEMINI_API_KEY or None)
@@ -42,7 +38,6 @@ def instantiate_model(
 
 def generate_json_output(
     model: LLMBackend,
-    tokenizer,
     messages,
     schema,
     max_tokens: int,
@@ -58,7 +53,7 @@ def generate_json_output(
     )
 
 
-def extract_keywords(model: LLMBackend, tokenizer, question: str) -> List[str]:
+def extract_keywords(model: LLMBackend, question: str) -> List[str]:
     schema = {
         "type": "object",
         "properties": {
@@ -84,7 +79,7 @@ Rules:
         {"role": "user", "content": question},
     ]
     try:
-        data = generate_json_output(model, tokenizer, messages, schema, max_tokens=256, temperature=0.0, top_p=1.0)
+        data = generate_json_output(model, messages, schema, max_tokens=256, temperature=0.0, top_p=1.0)
         kws = data.get("keywords", [])
     except Exception:
         raw = model.generate_text(messages, max_tokens=128, temperature=0.0, top_p=1.0)
@@ -98,7 +93,7 @@ Rules:
     return filtered[:10]
 
 
-def translate_question_to_arabic(model: LLMBackend, tokenizer, question: str) -> str:
+def translate_question_to_arabic(model: LLMBackend, question: str) -> str:
     schema = {
         "type": "object",
         "properties": {
@@ -121,7 +116,6 @@ Rules:
     try:
         data = generate_json_output(
             model,
-            tokenizer,
             messages,
             schema,
             max_tokens=220,
@@ -137,7 +131,6 @@ Rules:
 
 def generate_pedagogical_answer(
     model: LLMBackend,
-    tokenizer,
     question: str,
     context: str,
     extra_system_rules: Optional[str] = None,
@@ -199,7 +192,6 @@ Rules:
 
     answer = generate_json_output(
         model,
-        tokenizer,
         messages,
         schema,
         max_tokens=REASONER_OUTPUT_MAX_TOKENS,
@@ -230,7 +222,6 @@ Rules:
         try:
             answer = generate_json_output(
                 model,
-                tokenizer,
                 rewrite_messages,
                 schema,
                 max_tokens=REASONER_OUTPUT_MAX_TOKENS,
@@ -244,7 +235,6 @@ Rules:
 
 def assess_answer_consistency(
     model: LLMBackend,
-    tokenizer,
     question: str,
     context: str,
     answer: Dict,
@@ -297,7 +287,6 @@ Rules:
     try:
         return generate_json_output(
             model,
-            tokenizer,
             messages,
             schema,
             max_tokens=420,
@@ -312,7 +301,7 @@ Rules:
         }
 
 
-def translate_pages_to_french(model: LLMBackend, tokenizer, top_pages: List[Dict]) -> List[str]:
+def translate_pages_to_french(model: LLMBackend, top_pages: List[Dict]) -> List[str]:
     if not top_pages:
         return []
 
@@ -346,7 +335,6 @@ Rules:
         try:
             data = generate_json_output(
                 model,
-                tokenizer,
                 messages,
                 schema,
                 max_tokens=max_tokens,
