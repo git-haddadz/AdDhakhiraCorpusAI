@@ -62,6 +62,7 @@ class CustomBackend(LLMBackend):
             local_files_only=True,
             trust_remote_code=True,
         )
+        model_dtype = "float16" if "awq" in model_path.lower() else "bfloat16"
         self.model = LLM(
             model=model_path,
             tensor_parallel_size=tensor_parallel_size,
@@ -71,7 +72,7 @@ class CustomBackend(LLMBackend):
             gpu_memory_utilization=0.90,
             swap_space=0,
             enforce_eager=False,
-            dtype="bfloat16",
+            dtype=model_dtype,
             disable_custom_all_reduce=True,
         )
 

@@ -27,7 +27,7 @@ NUM_GPUS_EXTRACTOR = 2
 NUM_GPUS_REASONER = 2
 
 # === Embeddings ===
-EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
+EMBEDDING_MODEL = None
 
 # === Traduction ===
 TRANSLATE_TOP_CHUNKS_TO_FRENCH = False
