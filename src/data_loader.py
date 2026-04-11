@@ -3,7 +3,7 @@ import os
 from typing import Dict, List, Optional, Tuple
 
 from src.models import PageDoc, TextChunk
-from src.text_utils import clean_text, normalize_arabic, split_into_chunks
+from src.text_utils import clean_text, is_editorial_noise_page, normalize_arabic, split_into_chunks
 
 
 def _make_page_key(source_id: str, part_index: int, page_id: Optional[str], page_number: Optional[int]) -> str:
@@ -65,6 +65,8 @@ def load_chunks(json_input_path: str) -> Tuple[List[TextChunk], Dict[str, PageDo
                 if not cleaned:
                     continue
                 section_path = clean_text(str(page.get("title") or ""))
+                if is_editorial_noise_page(cleaned, section_path):
+                    continue
                 page_key = _make_page_key(source_id, p_idx, page.get("page_id"), page.get("page_number"))
                 pages[page_key] = PageDoc(
                     page_number=page.get("page_number"),

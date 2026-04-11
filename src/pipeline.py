@@ -1,10 +1,11 @@
 import os
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import torch
 from transformers import AutoTokenizer
 
 from src.config import (
+    AUTO_TRANSLATE_QUESTION_TO_ARABIC,
     EMBEDDING_MODEL,
     JSON_INPUT_PATH,
     MAX_MODEL_LEN_EXTRACTOR,
@@ -23,15 +24,29 @@ from src.llm_ops import (
     extract_keywords,
     generate_pedagogical_answer,
     instantiate_model,
+    translate_question_to_arabic,
     translate_pages_to_french,
 )
 from src.reporting import print_final
 from src.retrieval import HybridRetriever, top_pages_from_chunks
-from src.text_utils import truncate_text_by_tokens
+from src.text_utils import is_mostly_arabic, truncate_text_by_tokens
+
+
+def _estimate_token_count(text: str) -> int:
+    return max(1, int(len(text or "") / 4))
+
+
+def _truncate_text(text: str, tokenizer: Optional[AutoTokenizer], max_tokens: int) -> str:
+    if tokenizer is not None:
+        return truncate_text_by_tokens(text, tokenizer, max_tokens)
+    max_chars = max(32, int(max_tokens) * 4)
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars]
 
 
 def build_reasoning_context(
-    pages: List[Dict], tokenizer: AutoTokenizer, max_tokens: int
+    pages: List[Dict], tokenizer: Optional[AutoTokenizer], max_tokens: int
 ) -> Tuple[str, Dict[str, Dict[str, str]]]:
     lines = []
     source_map: Dict[str, Dict[str, str]] = {}
@@ -57,13 +72,17 @@ def build_reasoning_context(
             "source_id": str(p.get("source_id") or ""),
         }
     joined = "\n\n".join(lines)
-    return truncate_text_by_tokens(joined, tokenizer, max_tokens), source_map
+    return _truncate_text(joined, tokenizer, max_tokens), source_map
 
 
-def compute_page_token_counts(top_pages: List[Dict], tokenizer: AutoTokenizer) -> List[Dict]:
+def compute_page_token_counts(top_pages: List[Dict], tokenizer: Optional[AutoTokenizer]) -> List[Dict]:
     stats = []
     for p in top_pages:
-        token_count = len(tokenizer.encode(p["text"], add_special_tokens=False))
+        token_count = (
+            len(tokenizer.encode(p["text"], add_special_tokens=False))
+            if tokenizer is not None
+            else _estimate_token_count(p["text"])
+        )
         stats.append(
             {
                 "page_number": p.get("page_number"),
@@ -75,21 +94,37 @@ def compute_page_token_counts(top_pages: List[Dict], tokenizer: AutoTokenizer) -
     return stats
 
 
-def build_final_report(question: str, translate_to_french: bool, diagnostic_coherence: bool = False) -> str:
+def build_final_report(
+    question: str,
+    translate_to_french: bool,
+    diagnostic_coherence: bool = False,
+    auto_translate_question_to_arabic: bool = AUTO_TRANSLATE_QUESTION_TO_ARABIC,
+) -> str:
     extractor_model, extractor_tokenizer = instantiate_model(
         model_path=MODEL_EXTRACTOR_PATH,
         num_gpus=NUM_GPUS_EXTRACTOR,
         max_model_len=MAX_MODEL_LEN_EXTRACTOR,
+        model_role="extractor",
     )
 
-    keywords = extract_keywords(extractor_model, extractor_tokenizer, question)
+    processing_question = question
+    translation_applied = False
+    if auto_translate_question_to_arabic and not is_mostly_arabic(question):
+        processing_question = translate_question_to_arabic(
+            extractor_model,
+            extractor_tokenizer,
+            question,
+        )
+        translation_applied = processing_question != question
+
+    keywords = extract_keywords(extractor_model, extractor_tokenizer, processing_question)
     if len(keywords) < 4:
         raise ValueError(f"Too few valid Arabic keywords extracted: {keywords}")
 
     chunks, pages_by_key = load_chunks(JSON_INPUT_PATH)
     retriever = HybridRetriever(chunks, embedding_model_name=EMBEDDING_MODEL)
 
-    top_chunks = retriever.search(question, keywords, top_k=TOP_K_CHUNKS)
+    top_chunks = retriever.search(processing_question, keywords, top_k=TOP_K_CHUNKS)
     top_pages = top_pages_from_chunks(top_chunks, pages_by_key, top_k_pages=TOP_K_PAGES)
     if not top_pages:
         fallback = {
@@ -101,15 +136,20 @@ def build_final_report(question: str, translate_to_french: bool, diagnostic_cohe
         report = print_final(question, keywords, [], fallback)
         return report
 
-    if os.path.normpath(MODEL_EXTRACTOR_PATH) == os.path.normpath(MODEL_REASONER_PATH):
+    if extractor_tokenizer is None:
+        sizing_tokenizer = None
+    elif os.path.normpath(MODEL_EXTRACTOR_PATH) == os.path.normpath(MODEL_REASONER_PATH):
         sizing_tokenizer = extractor_tokenizer
     else:
-        sizing_tokenizer = AutoTokenizer.from_pretrained(
-            MODEL_REASONER_PATH,
-            cache_dir=MODEL_REASONER_PATH,
-            local_files_only=True,
-            trust_remote_code=True,
-        )
+        try:
+            sizing_tokenizer = AutoTokenizer.from_pretrained(
+                MODEL_REASONER_PATH,
+                cache_dir=MODEL_REASONER_PATH,
+                local_files_only=True,
+                trust_remote_code=True,
+            )
+        except Exception:
+            sizing_tokenizer = extractor_tokenizer
     page_token_counts = compute_page_token_counts(top_pages, sizing_tokenizer)
     total_page_tokens = sum(p["tokens"] for p in page_token_counts)
     token_by_page = {
@@ -127,6 +167,7 @@ def build_final_report(question: str, translate_to_french: bool, diagnostic_cohe
         model_path=MODEL_REASONER_PATH,
         num_gpus=NUM_GPUS_REASONER,
         max_model_len=reasoner_model_len,
+        model_role="reasoner",
     )
 
     context, source_page_map = build_reasoning_context(
@@ -158,14 +199,14 @@ def build_final_report(question: str, translate_to_french: bool, diagnostic_cohe
         primary = assess_answer_consistency(
             reasoner_model,
             reasoner_tokenizer,
-            question,
+            processing_question,
             context,
             candidate_answer,
         )
         adversarial = assess_answer_consistency(
             reasoner_model,
             reasoner_tokenizer,
-            question,
+            processing_question,
             context,
             candidate_answer,
             extra_verifier_rules=(
@@ -181,7 +222,7 @@ def build_final_report(question: str, translate_to_french: bool, diagnostic_cohe
             generated = generate_pedagogical_answer(
                 reasoner_model,
                 reasoner_tokenizer,
-                question,
+                processing_question,
                 context,
                 extra_system_rules=extra_rules,
             )
@@ -245,6 +286,9 @@ def build_final_report(question: str, translate_to_french: bool, diagnostic_cohe
     else:
         consistency = _evaluate_answer(answer)
     coherence_diag: Dict[str, object] = {
+        "question_translation_enabled": auto_translate_question_to_arabic,
+        "question_translation_applied": translation_applied,
+        "question_pipeline_used": processing_question,
         "initial_verdict": consistency.get("verdict"),
         "initial_issues": consistency.get("issues", []),
         "initial_primary_verdict": consistency.get("primary_verdict"),

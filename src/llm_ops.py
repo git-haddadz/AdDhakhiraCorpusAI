@@ -3,52 +3,45 @@ import logging
 import re
 from typing import Dict, List, Optional
 
-import torch
-from transformers import AutoTokenizer
-from vllm import LLM, SamplingParams
-from vllm.sampling_params import StructuredOutputsParams
-
 from src.config import (
+    GEMINI_API_KEY,
+    LLM_BACKEND,
     REASONER_OUTPUT_MAX_TOKENS,
     REASONER_TEMPERATURE,
     REASONER_TOP_P,
     TRANSLATION_MAX_TOKENS,
 )
+from src.llm_backend import CustomBackend, GeminiBackend, LLMBackend
 from src.text_utils import ARABIC_WORD_RE
 
 LOGGER = logging.getLogger(__name__)
 
 
-def instantiate_model(model_path: str, num_gpus: int = 1, max_model_len: int = 1024):
-    if torch.cuda.device_count() == 0:
-        tensor_parallel_size = 1
-    else:
-        tensor_parallel_size = min(num_gpus, torch.cuda.device_count())
+def instantiate_model(
+    model_path: str,
+    num_gpus: int = 1,
+    max_model_len: int = 1024,
+    model_role: str = "extractor",
+):
+    if LLM_BACKEND == "gemini_api":
+        backend = GeminiBackend(model_name=model_path, api_key=GEMINI_API_KEY or None)
+        return backend, backend.get_tokenizer()
 
-    tokenizer = AutoTokenizer.from_pretrained(
-        model_path,
-        cache_dir=model_path,
-        local_files_only=True,
-        trust_remote_code=True,
-    )
+    if LLM_BACKEND != "custom":
+        raise ValueError(
+            f"Unsupported LLM_BACKEND='{LLM_BACKEND}'. Expected one of: custom, gemini_api."
+        )
 
-    model = LLM(
-        model=model_path,
-        tensor_parallel_size=tensor_parallel_size,
+    backend = CustomBackend(
+        model_path=model_path,
+        num_gpus=num_gpus,
         max_model_len=max_model_len,
-        max_num_batched_tokens=min(4096, max_model_len),
-        max_num_seqs=1,
-        gpu_memory_utilization=0.90,
-        swap_space=0,
-        enforce_eager=False,
-        dtype="bfloat16",
-        disable_custom_all_reduce=True,
     )
-    return model, tokenizer
+    return backend, backend.get_tokenizer()
 
 
 def generate_json_output(
-    model,
+    model: LLMBackend,
     tokenizer,
     messages,
     schema,
@@ -56,44 +49,16 @@ def generate_json_output(
     temperature: float = 0.0,
     top_p: float = 1.0,
 ):
-    prompt = tokenizer.apply_chat_template(
-        messages,
-        tokenize=False,
-        add_generation_prompt=True,
+    return model.generate_json(
+        messages=messages,
+        schema=schema,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        top_p=top_p,
     )
-    current_max_tokens = max(64, int(max_tokens))
-    attempt_idx = 0
-    while True:
-        attempt_idx += 1
-        sampling = SamplingParams(
-            temperature=temperature,
-            top_p=top_p,
-            max_tokens=current_max_tokens,
-            structured_outputs=StructuredOutputsParams(
-                json=schema,
-                disable_additional_properties=True,
-            ),
-        )
-        output = model.generate(prompt, sampling)[0].outputs[0].text.strip()
-        try:
-            return json.loads(output)
-        except json.JSONDecodeError as exc:
-            LOGGER.error(
-                "JSON parsing failed in generate_json_output (attempt %s, max_tokens=%s): %s at line=%s col=%s pos=%s",
-                attempt_idx,
-                current_max_tokens,
-                exc.msg,
-                exc.lineno,
-                exc.colno,
-                exc.pos,
-            )
-            LOGGER.error("---- RAW_MODEL_OUTPUT_ATTEMPT_%s_START ----", attempt_idx)
-            LOGGER.error(output)
-            LOGGER.error("---- RAW_MODEL_OUTPUT_ATTEMPT_%s_END ----", attempt_idx)
-            current_max_tokens = max(current_max_tokens + 1, int(current_max_tokens * 1.5))
 
 
-def extract_keywords(model, tokenizer, question: str) -> List[str]:
+def extract_keywords(model: LLMBackend, tokenizer, question: str) -> List[str]:
     schema = {
         "type": "object",
         "properties": {
@@ -122,9 +87,7 @@ Rules:
         data = generate_json_output(model, tokenizer, messages, schema, max_tokens=256, temperature=0.0, top_p=1.0)
         kws = data.get("keywords", [])
     except Exception:
-        fallback_sampling = SamplingParams(temperature=0.0, top_p=1.0, max_tokens=128)
-        prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        raw = model.generate(prompt, fallback_sampling)[0].outputs[0].text
+        raw = model.generate_text(messages, max_tokens=128, temperature=0.0, top_p=1.0)
         kws = [line.strip("-* \t\r\n") for line in raw.splitlines() if line.strip()]
 
     filtered = []
@@ -135,8 +98,45 @@ Rules:
     return filtered[:10]
 
 
+def translate_question_to_arabic(model: LLMBackend, tokenizer, question: str) -> str:
+    schema = {
+        "type": "object",
+        "properties": {
+            "question_ar": {"type": "string", "minLength": 1},
+        },
+        "required": ["question_ar"],
+        "additionalProperties": False,
+    }
+    system_prompt = """You are a translator for Islamic research queries.
+Translate the user question into clear Modern Standard Arabic.
+Rules:
+- Preserve all facts, conditions, negations, and temporal/order details.
+- Do not answer the question.
+- Return only JSON following the schema.
+"""
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": question},
+    ]
+    try:
+        data = generate_json_output(
+            model,
+            tokenizer,
+            messages,
+            schema,
+            max_tokens=220,
+            temperature=0.0,
+            top_p=1.0,
+        )
+        translated = str(data.get("question_ar", "")).strip()
+        return translated or question
+    except Exception:
+        raw = model.generate_text(messages, max_tokens=220, temperature=0.0, top_p=1.0).strip()
+        return raw or question
+
+
 def generate_pedagogical_answer(
-    model,
+    model: LLMBackend,
     tokenizer,
     question: str,
     context: str,
@@ -243,7 +243,7 @@ Rules:
 
 
 def assess_answer_consistency(
-    model,
+    model: LLMBackend,
     tokenizer,
     question: str,
     context: str,
@@ -312,7 +312,7 @@ Rules:
         }
 
 
-def translate_pages_to_french(model, tokenizer, top_pages: List[Dict]) -> List[str]:
+def translate_pages_to_french(model: LLMBackend, tokenizer, top_pages: List[Dict]) -> List[str]:
     if not top_pages:
         return []
 
@@ -329,50 +329,34 @@ Rules:
         "required": ["translation_fr"],
         "additionalProperties": False,
     }
-    structural_tag_spec = {
-        "structures": [
-            {
-                "begin": "<traduction>",
-                "schema": schema,
-                "end": "</traduction>",
-            }
-        ],
-        "triggers": ["<traduction>"],
-    }
 
     translations: List[str] = []
     for p in top_pages:
         user_text = (
             "Translate the following page into French. "
-            "Respond only with the <traduction> tag and its content.\n\n"
+            "Return JSON only with key translation_fr.\n\n"
             f"{p['text']}"
         )
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_text},
         ]
-        prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        src_tokens = len(tokenizer.encode(p["text"], add_special_tokens=False))
+        src_tokens = model.count_tokens(p["text"])
         max_tokens = min(TRANSLATION_MAX_TOKENS, max(700, int(src_tokens * 1.2) + 200))
-        sampling = SamplingParams(
-            temperature=0.0,
-            top_p=1.0,
-            max_tokens=max_tokens,
-            structured_outputs=StructuredOutputsParams(
-                structural_tag=json.dumps(structural_tag_spec, ensure_ascii=False),
-                disable_additional_properties=True,
-            ),
-        )
         try:
-            out = model.generate(prompt, sampling)[0].outputs[0].text.strip()
-            m = re.search(r"<traduction>(.*?)</traduction>", out, flags=re.DOTALL)
-            payload = m.group(1).strip() if m else out
-            data = json.loads(payload)
+            data = generate_json_output(
+                model,
+                tokenizer,
+                messages,
+                schema,
+                max_tokens=max_tokens,
+                temperature=0.0,
+                top_p=1.0,
+            )
             tr = (data.get("translation_fr") or "").strip()
             translations.append(tr if tr else "[Traduction indisponible]")
         except Exception:
-            fallback_sampling = SamplingParams(temperature=0.0, top_p=1.0, max_tokens=max_tokens)
-            raw = model.generate(prompt, fallback_sampling)[0].outputs[0].text.strip()
+            raw = model.generate_text(messages, max_tokens=max_tokens, temperature=0.0, top_p=1.0).strip()
             translations.append(raw if raw else "[Traduction indisponible]")
 
     return translations

@@ -23,6 +23,9 @@ def _render_consistency_html(consistency_diagnostic: Optional[Dict[str, str]]) -
         return ""
     rows = []
     keys = [
+        ("Traduction question activée", "question_translation_enabled"),
+        ("Traduction question appliquée", "question_translation_applied"),
+        ("Question utilisée par la pipeline", "question_pipeline_used"),
         ("Verdict initial", "initial_verdict"),
         ("Génération structurée échouée", "generation_failed"),
         ("Verdict initial (primaire)", "initial_primary_verdict"),

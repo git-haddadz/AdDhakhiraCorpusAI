@@ -1,0 +1,27 @@
+# Runtime requirements for this repo (Colab-friendly, no Docker/Singularity needed)
+# If needed for CUDA wheels on Colab, uncomment the next line:
+# --extra-index-url https://download.pytorch.org/whl/cu124
+
+torch==2.8.0
+transformers==4.57.1
+vllm==0.11.0
+
+# HF / tokenization stack used by transformers + sentence-transformers
+huggingface-hub==0.34.0
+tokenizers==0.22.0
+safetensors==0.4.3
+sentencepiece==0.2.0
+tiktoken==0.7.0
+
+# Retrieval stack used directly in src/retrieval.py
+numpy==1.26.4
+scipy==1.11.4
+scikit-learn==1.7.2
+sentence-transformers==5.1.2
+rank-bm25==0.2.2
+faiss-cpu==1.8.0.post1
+
+# Used by vLLM / common inference flows
+accelerate==1.7.0
+einops==0.8.1
+datasets==4.5.0

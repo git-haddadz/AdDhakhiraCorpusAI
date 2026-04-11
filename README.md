@@ -44,14 +44,55 @@ This is an AI-assisted bibliographic research tool for students and researchers.
 
 From `src/config.py` and retrieval logic:
 
-- Default LLM (extractor/reasoner): `Qwen/Qwen3-Next-80B-A3B-Instruct-FP8`
-- Embedding model:
-  - `EMBEDDING_MODEL = None` by default in config.
-  - If no custom local path is provided, retrieval attempts a local cached sentence-transformers multilingual model (`sentence-transformers/paraphrase-multilingual-mpnet-base-v2`) when available.
+- Default backend: `custom` (the models run locally through vLLM on your machine/GPUs).
+- Alternative backend supported: `gemini_api` (the same pipeline flow is kept, but model inference is delegated to Gemini API).
+- Default extractor model path: `Qwen/Qwen3-Next-80B-A3B-Instruct-FP8`
+- Default reasoner model path: `Qwen/Qwen3-Next-80B-A3B-Instruct-FP8`
+- Default embedding model: `sentence-transformers/paraphrase-multilingual-mpnet-base-v2`
 
-Model choices are configurable and can be adapted to other models through `vLLM` by editing the project configuration.
+Model choices are configurable in `src/config.py`.
 
-## 5) Is the project modifiable?
+## 5) Run locally
+
+1. Clone the repository
+```bash
+git clone https://github.com/git-haddadz/AdDhakhiraCorpusAI.git
+cd AdDhakhiraCorpusAI
+```
+
+2. Create and activate a Python environment
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -U pip
+pip install -r requirements.txt
+```
+
+3. Run the main entrypoint
+```bash
+python -u main.py \
+  --question "كيف تكون صلاة الجنازة عند المالكية؟" \
+  --output "./outputs/output_local.html" \
+  --diagnostic-coherence
+```
+
+## 6) Demo - Get Started (Gemini)
+
+If you cannot run the full local stack, start with the Gemini notebook:
+
+- Google Colab: [AdDhakhira_WebApp_Gemini.ipynb](https://colab.research.google.com/github/git-haddadz/AdDhakhiraCorpusAI/blob/main/AdDhakhira_WebApp_Gemini.ipynb)
+
+This notebook keeps the same pipeline flow while using the Gemini backend to reduce local hardware constraints.
+
+## 7) Demo - Get Started (Custom)
+
+For Google Colab free usage, the custom notebook defaults to a smaller quantized model for easier testing:
+
+- Google Colab: [AdDhakhira_WebApp_Custom.ipynb](https://colab.research.google.com/github/git-haddadz/AdDhakhiraCorpusAI/blob/main/AdDhakhira_WebApp_Custom.ipynb)
+
+This default model is less accurate than the project’s optimal setup. If you have enough compute (local machine or stronger Colab setup), switch the notebook models back to `Qwen/Qwen3-Next-80B-A3B-Instruct-FP8` to reproduce the project’s optimal conditions.
+
+## 8) Is the project modifiable?
 
 Yes.
 

@@ -1,4 +1,3 @@
-import os
 from typing import Dict, List, Optional
 
 import faiss
@@ -7,7 +6,7 @@ from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
 
 from src.models import PageDoc, TextChunk
-from src.text_utils import normalize_arabic, tokenize_for_bm25
+from src.text_utils import is_editorial_noise_page, normalize_arabic, tokenize_for_bm25
 
 
 class HybridRetriever:
@@ -25,11 +24,10 @@ class HybridRetriever:
     def _init_dense(self):
         if SentenceTransformer is None or faiss is None or not self.chunks:
             return
-        model_name = self._resolve_local_embedding_model()
-        if model_name is None:
+        if not self.embedding_model_name:
             return
         try:
-            self.embedder = SentenceTransformer(model_name, local_files_only=True)
+            self.embedder = SentenceTransformer(self.embedding_model_name)
             dense_texts = [c.text for c in self.chunks]
             embs = self.embedder.encode(
                 dense_texts,
@@ -47,25 +45,6 @@ class HybridRetriever:
             self.faiss_index = None
             self.dense_embeddings = None
             self.dense_enabled = False
-
-    def _resolve_local_embedding_model(self) -> Optional[str]:
-        if self.embedding_model_name and os.path.isdir(self.embedding_model_name):
-            return self.embedding_model_name
-
-        default_name = self.embedding_model_name or "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
-        cache_root = os.path.expanduser("~/.cache/torch/sentence_transformers")
-        if os.path.isdir(cache_root):
-            direct = os.path.join(cache_root, default_name.replace("/", "_"))
-            if os.path.isdir(direct):
-                return direct
-
-            for name in os.listdir(cache_root):
-                lower = name.lower()
-                if "multilingual" in lower and "sentence" in lower:
-                    cand = os.path.join(cache_root, name)
-                    if os.path.isdir(cand):
-                        return cand
-        return None
 
     @staticmethod
     def _minmax(arr: np.ndarray) -> np.ndarray:
@@ -168,11 +147,15 @@ def top_pages_from_chunks(
             }
         )
 
-    sorted_pages = sorted(aggregated_pages, key=lambda x: x["score"], reverse=True)[:top_k_pages]
+    sorted_pages = sorted(aggregated_pages, key=lambda x: x["score"], reverse=True)
     results = []
     for rec in sorted_pages:
+        if len(results) >= top_k_pages:
+            break
         page_doc = pages_by_key.get(rec["page_key"])
         if page_doc is None:
+            continue
+        if is_editorial_noise_page(page_doc.full_text, page_doc.section_path):
             continue
         results.append(
             {
