@@ -1,66 +1,101 @@
+العربية | [Français](README.fr.md) | [English](README.en.md)
+
 # AdDhakhiraCorpusAI
 
-## 1) Why is the repository named `AdDhakhiraCorpusAI`?
+## ١) لماذا سُمّي هذا المستودع `AdDhakhiraCorpusAI`؟
 
-The name has two intentions:
+للاسم مقصدان:
 
-- It is a tribute to Imam al-Qarafi (رحمه الله تعالى), one of the great scholars of the Maliki school, and to his major work **al-Dhakhira (الذخيرة)**, which we warmly recommend students to discover.
-- Linguistically, **dhakhira** means a stored reserve, repository, treasury, or provision kept for future need. In that sense, the project is conceived as a place where knowledge and books are gathered and organized for study.
+- هو إشارة وتقدير للإمام القرافي رحمه الله تعالى، أحد كبار علماء المذهب المالكي، ولعمله الجليل **الذخيرة**، وهو كتاب ننصح طلبة العلم بالتعرّف عليه.
+- ومن جهة اللغة، فالذخيرة هي ما يُدّخر وينتفع به عند الحاجة. ومن هذا المعنى صُمّم المشروع ليكون موضعاً تُجمع فيه الكتب والمعارف وتُنظّم لأجل الدراسة والبحث.
 
-Analogy with this project: **AdDhakhiraCorpusAI** acts as a digital *dhakhira* for students, a curated reserve of Maliki references that can be searched, retrieved, and studied efficiently.
+وبهذا المعنى، يعمل **AdDhakhiraCorpusAI** كذخيرة رقمية للطلاب والباحثين: مجموعة منظّمة من المراجع المالكية يمكن البحث فيها واسترجاع مواضعها ودراستها بكفاءة أكبر.
 
-## 2) Which bibliography is this based on?
+## ٢) ما هي المراجع التي يعتمد عليها المشروع؟
 
-Current corpus (from the `database/` folder):
+يعتمد corpus الحالي على ملفات `database/` ويضم:
 
-- **شرح الخرشي على مختصر خليل - ومعه حاشية العدوي** (*Sharh al-Kharashi 'ala Mukhtasar Khalil - wa ma'ahu Hashiyat al-'Adawi*) — **الخرشي = الخراشي; العدوي** (*al-Kharashi; al-'Adawi*)
-- **مواهب الجليل في شرح مختصر خليل** (*Mawahib al-Jalil fi Sharh Mukhtasar Khalil*) — **الحطاب** (*al-Hattab*)
-- **الذخيرة للقرافي** (*al-Dhakhira li-l-Qarafi*) — **القرافي** (*al-Qarafi*)
-- **القوانين الفقهية** (*al-Qawanin al-Fiqhiyyah*) — **ابن جزي الكلبي** (*Ibn Juzayy al-Kalbi*)
-- **الثمر الداني شرح رسالة ابن أبي زيد القيرواني** (*al-Thamar al-Dani, Sharh Risalat Ibn Abi Zayd al-Qayrawani*) — **صالح بن عبد السميع الأزهري** (*Salih ibn 'Abd al-Sami' al-Azhari*)
-- **المدخل لابن الحاج** (*al-Madkhal li-Ibn al-Hajj*) — **ابن الحاج** (*Ibn al-Hajj*)
-- **شرح الزرقاني على مختصر خليل وحاشية البناني** (*Sharh al-Zurqani 'ala Mukhtasar Khalil wa Hashiyat al-Bannani*) — **الزرقاني، عبد الباقي** (*al-Zurqani, 'Abd al-Baqi*)
-- **التوضيح في شرح مختصر ابن الحاجب** (*al-Tawdih fi Sharh Mukhtasar Ibn al-Hajib*) — **خليل بن إسحاق الجندي** (*Khalil ibn Ishaq al-Jundi*)
-- **شرح زروق على متن الرسالة** (*Sharh Zarruq 'ala Matn al-Risalah*) — **زروق** (*Zarruq*)
-- **التبصرة للخمي** (*al-Tabsirah li-l-Lakhmi*) — **اللخمي، أبو الحسن** (*al-Lakhmi, Abu al-Hasan*)
-- **الفواكه الدواني على رسالة ابن أبي زيد القيرواني** (*al-Fawakih al-Dawani 'ala Risalat Ibn Abi Zayd al-Qayrawani*) — **النفراوي** (*al-Nafrawi*)
-- **حاشية العدوي على كفاية الطالب الرباني** (*Hashiyat al-'Adawi 'ala Kifayat al-Talib al-Rabbani*) — **العدوي** (*al-'Adawi*)
-- **حاشية الصاوي على الشرح الصغير = بلغة السالك لأقرب المسالك** (*Hashiyat al-Sawi 'ala al-Sharh al-Saghir = Bulghat al-Salik li-Aqrab al-Masalik*) — **أحمد الصاوي** (*Ahmad al-Sawi*)
-- **التاج والإكليل لمختصر خليل** (*al-Taj wa-l-Iklil li-Mukhtasar Khalil*) — **محمد بن يوسف المواق** (*Muhammad ibn Yusuf al-Mawwaq*)
-- **منح الجليل شرح مختصر خليل** (*Manh al-Jalil, Sharh Mukhtasar Khalil*) — **محمد بن أحمد عليش** (*Muhammad ibn Ahmad 'Illish*)
-- **المقدمات الممهدات** (*al-Muqaddimat al-Mumahhidat*) — **ابن رشد الجد** (*Ibn Rushd al-Jadd*)
-- **شرح التلقين** (*Sharh al-Talqin*) — **المازري** (*al-Maziri*)
-- **تحبير المختصر وهو الشرح الوسط لبهرام على مختصر خليل** (*Tahbir al-Mukhtasar, wa huwa al-Sharh al-Wasat li-Bahram 'ala Mukhtasar Khalil*) — **بهرام الدميري** (*Bahram al-Damiri*)
+- **شرح الخرشي على مختصر خليل - ومعه حاشية العدوي** — **الخرشي = الخراشي; العدوي**
+- **مواهب الجليل في شرح مختصر خليل** — **الحطاب**
+- **الذخيرة للقرافي** — **القرافي**
+- **القوانين الفقهية** — **ابن جزي الكلبي**
+- **الثمر الداني شرح رسالة ابن أبي زيد القيرواني** — **صالح بن عبد السميع الأزهري**
+- **المدخل لابن الحاج** — **ابن الحاج**
+- **شرح الزرقاني على مختصر خليل وحاشية البناني** — **الزرقاني، عبد الباقي**
+- **التوضيح في شرح مختصر ابن الحاجب** — **خليل بن إسحاق الجندي**
+- **شرح زروق على متن الرسالة** — **زروق**
+- **التبصرة للخمي** — **اللخمي، أبو الحسن**
+- **الفواكه الدواني على رسالة ابن أبي زيد القيرواني** — **النفراوي**
+- **حاشية العدوي على كفاية الطالب الرباني** — **العدوي**
+- **حاشية الصاوي على الشرح الصغير = بلغة السالك لأقرب المسالك** — **أحمد الصاوي**
+- **التاج والإكليل لمختصر خليل** — **محمد بن يوسف المواق**
+- **منح الجليل شرح مختصر خليل** — **محمد بن أحمد عليش**
+- **المقدمات الممهدات** — **ابن رشد الجد**
+- **شرح التلقين** — **المازري**
+- **تحبير المختصر وهو الشرح الوسط لبهرام على مختصر خليل** — **بهرام الدميري**
 
-May Allah preserve all the scholars who enriched the Maliki school.
+نسأل الله أن يحفظ العلماء الذين خدموا المذهب المالكي وأثروا تراثه.
 
-## 3) Project scope and purpose
+## ٣) نطاق المشروع وهدفه
 
-**A bibliographic research assistant for Maliki fiqh using RAG and LLMs. This tool does not issue fatwas.**
+**هذا مساعد بحثي ببليوغرافي للفقه المالكي يعتمد على RAG وLLM. لا يُصدر هذا النظام فتاوى.**
 
-This is an AI-assisted bibliographic research tool for students and researchers. Its role is to help navigate sources, surface relevant passages, and support structured study.
+الغرض منه مساعدة الطلاب والباحثين على تصفح المصادر، واستخراج المواضع ذات الصلة، وتنظيم الدراسة حول النصوص.
 
-## 4) Default models (LLM + RAG embedding)
+## ٤) أوضاع الاستدلال والنماذج الافتراضية
 
-From `src/config.py` and retrieval logic:
+تظل pipeline البحث نفسها في جميع الأوضاع:
 
-- Default backend: `custom` (the models run locally through vLLM on your machine/GPUs).
-- Alternative backend supported: `gemini_api` (the same pipeline flow is kept, but model inference is delegated to Gemini API).
-- Default extractor model path: `Qwen/Qwen3-Next-80B-A3B-Instruct-FP8`
-- Default reasoner model path: `Qwen/Qwen3-Next-80B-A3B-Instruct-FP8`
-- Default embedding model: `sentence-transformers/paraphrase-multilingual-mpnet-base-v2`
+- استخراج كلمات مفتاحية عربية؛
+- استرجاع dense من صفحات corpus؛
+- توليد جواب اعتماداً على الصفحات المسترجعة؛
+- إخراج HTML.
 
-Model choices are configurable in `src/config.py`.
+الذي يتغير فقط هو النموذجان اللغويان: extractor وreasoner.
 
-## 5) Run locally
+### `default`
 
-1. Clone the repository
+هذا هو الإعداد المحلي الموصى به وفق نتائج benchmark:
+
+- Extractor: `gemma-4-12B-it`
+- Reasoner: `Qwen3.6-35B-A3B`
+- Embedding: `Qwen/Qwen3-Embedding-4B`
+- Retrieval: dense
+- Vector backend: FAISS
+
+### `lite_version`
+
+وضع أخف للتجربة على Colab أو GPU أصغر:
+
+- Extractor: `Qwen/Qwen2.5-7B-Instruct-AWQ`
+- Reasoner: `Qwen/Qwen2.5-7B-Instruct-AWQ`
+- embedding/retrieval/output: مثل `default`
+
+هذا الوضع أسهل في التشغيل لكنه أقل دقة من `default`.
+
+### أوضاع API
+
+يمكن في notebook استبدال النموذجين اللغويين فقط بخدمة API، مع بقاء embedding وretrieval والصفحات المسترجعة وإخراج HTML كما هي.
+
+- `gemini_api`: يستخدم Gemini عبر `GEMINI_API_KEY`؛ ويتطلب حساباً في Google AI Studio ومفتاح API ([الدليل الرسمي لمفاتيح API](https://ai.google.dev/gemini-api/docs/api-key?hl=ar)).
+- `openai_api`: يستخدم نماذج ChatGPT/OpenAI عبر `OPENAI_API_KEY`؛ ويتطلب حساباً في OpenAI Platform ومفتاح API ([الدليل الرسمي للبدء، بالإنجليزية](https://developers.openai.com/api/docs/quickstart)).
+- `anthropic_api`: يستخدم Claude/Anthropic عبر `ANTHROPIC_API_KEY`؛ ويتطلب حساباً في Claude Platform ومفتاح API ([النظرة الرسمية على API، بالإنجليزية](https://platform.claude.com/docs/en/api/overview)).
+
+هذه الأوضاع مفيدة لمن لا يملك ذاكرة GPU كافية محلياً لكنه يملك حساب API.
+
+يمكن تعديل جميع نماذج المشروع من notebook أو من `src/config.py`. في التشغيل المحلي يجب أن تشير القيم إلى مجلدات نماذج موجودة على الجهاز أو في cache Hugging Face.
+
+## ٥) التشغيل المحلي
+
+1. استنساخ المستودع
+
 ```bash
 git clone https://github.com/git-haddadz/AdDhakhiraCorpusAI.git
 cd AdDhakhiraCorpusAI
 ```
 
-2. Create and activate a Python environment
+2. إنشاء بيئة Python وتفعيلها
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate
@@ -68,32 +103,65 @@ pip install -U pip
 pip install -r requirements.txt
 ```
 
-3. Run the main entrypoint
+3. إنشاء ملف الإعداد المحلي
+
+انسخ القالب ثم عدّل القيم حسب جهازك:
+
 ```bash
-python -u main.py \
-  --question "كيف تكون صلاة الجنازة عند المالكية؟" \
-  --output "./outputs/output_local.html" \
-  --diagnostic-coherence
+cp src/config_template.py src/config.py
 ```
 
-## 6) Demo - Get Started (Gemini)
+في وضع `default` عدّل:
 
-If you cannot run the full local stack, start with the Gemini notebook:
+- `MODEL_EXTRACTOR_PATH`
+- `MODEL_REASONER_PATH`
+- `EMBEDDING_MODEL`
+- `NUM_GPUS_EXTRACTOR`
+- `NUM_GPUS_REASONER`
 
-- Google Colab: [AdDhakhira_WebApp_Gemini.ipynb](https://colab.research.google.com/github/git-haddadz/AdDhakhiraCorpusAI/blob/main/AdDhakhira_WebApp_Gemini.ipynb)
+في أوضاع API عدّل:
 
-This notebook keeps the same pipeline flow while using the Gemini backend to reduce local hardware constraints.
+- `LLM_BACKEND`
+- `MODEL_EXTRACTOR_PATH`
+- `MODEL_REASONER_PATH`
+- مفتاح API الموافق
 
-## 7) Demo - Get Started (Custom)
+4. بناء فهرس FAISS dense
 
-For Google Colab free usage, the custom notebook defaults to a smaller quantized model for easier testing:
+الوضع الافتراضي يستعمل retrieval dense مع `Qwen/Qwen3-Embedding-4B`. يُبنى الفهرس مرة واحدة قبل تشغيل التطبيق، ثم يُعاد استعماله إذا كان متوافقاً.
 
-- Google Colab: [AdDhakhira_WebApp_Custom.ipynb](https://colab.research.google.com/github/git-haddadz/AdDhakhiraCorpusAI/blob/main/AdDhakhira_WebApp_Custom.ipynb)
+```bash
+python -m src.vector_index   --model "/path/to/Qwen__Qwen3-Embedding-4B"   --backend faiss   --json-input ./database   --output-dir ./database/vector_indexes
+```
 
-This default model `Qwen/Qwen2.5-7B-Instruct-AWQ` is less accurate than the project’s optimal setup. If you have enough compute (local machine or stronger Colab setup), switch the notebook models back to `Qwen/Qwen3-Next-80B-A3B-Instruct-FP8` to reproduce the project’s optimal conditions.
+استعمل نفس مسار أو ID نموذج embedding الموجود في `EMBEDDING_MODEL` داخل `src/config.py`.
 
-## 8) Is the project modifiable?
+5. تشغيل المدخل الرئيسي
 
-Yes.
+```bash
+python -u main.py   --question "كيف تكون صلاة الجنازة عند المالكية؟"   --output "./outputs/output_local.html"   --diagnostic-coherence
+```
 
-The project is open-source and designed to be forked, improved, and adapted, as long as derivative use remains free and open-source. Adapting the tool to a corpus from another madhhab is explicitly encouraged.
+## ٦) تجربة سريعة
+
+لاستعمال Google Colab، افتح notebook التطبيق:
+
+- Google Colab: [AdDhakhira_WebApp.ipynb](https://colab.research.google.com/github/git-haddadz/AdDhakhiraCorpusAI/blob/main/AdDhakhira_WebApp.ipynb)
+
+يوفر notebook قائمة اختيار:
+
+- `default`
+- `lite_version`
+- Gemini API
+- ChatGPT/OpenAI API
+- Claude/Anthropic API
+
+عند اختيار وضع API يظهر حقل المفتاح المناسب. أوضاع API تستبدل فقط extractor وreasoner، بينما embedding وretrieval والصفحات المختارة وصيغة الإخراج والحفظ في Drive وتحميل HTML محلياً تبقى كما هي.
+
+يمكن تعديل حقول النماذج في notebook قبل التهيئة.
+
+## ٧) هل يمكن تعديل المشروع؟
+
+نعم.
+
+المشروع open-source ومصمم ليُنسخ ويُحسّن ويُكيّف، بشرط أن تبقى الاستعمالات المشتقة حرة ومفتوحة المصدر. كما أن تكييف الأداة مع corpus لمذهب آخر أمر مرحّب به.

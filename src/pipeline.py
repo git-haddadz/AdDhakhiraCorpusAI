@@ -1,4 +1,5 @@
 import os
+import gc
 from typing import Dict, List, Optional, Tuple
 
 import torch
@@ -100,6 +101,7 @@ def build_final_report(
     diagnostic_coherence: bool = False,
     auto_translate_question_to_arabic: bool = AUTO_TRANSLATE_QUESTION_TO_ARABIC,
 ) -> str:
+    extractor_model = None
     extractor_model, extractor_tokenizer = instantiate_model(
         model_path=MODEL_EXTRACTOR_PATH,
         num_gpus=NUM_GPUS_EXTRACTOR,
@@ -119,11 +121,30 @@ def build_final_report(
     if len(keywords) < 4:
         raise ValueError(f"Too few valid Arabic keywords extracted: {keywords}")
 
+    if hasattr(extractor_model, "close"):
+        extractor_model.close()
+    del extractor_model
+    gc.collect()
+    torch.cuda.empty_cache()
+    try:
+        torch.cuda.ipc_collect()
+    except Exception:
+        pass
+
     chunks, pages_by_key = load_chunks(JSON_INPUT_PATH)
     retriever = HybridRetriever(chunks, embedding_model_name=EMBEDDING_MODEL)
 
     top_chunks = retriever.search(processing_question, keywords, top_k=TOP_K_CHUNKS)
     top_pages = top_pages_from_chunks(top_chunks, pages_by_key, top_k_pages=TOP_K_PAGES)
+    if hasattr(retriever, "close"):
+        retriever.close()
+    del retriever
+    gc.collect()
+    torch.cuda.empty_cache()
+    try:
+        torch.cuda.ipc_collect()
+    except Exception:
+        pass
     if not top_pages:
         fallback = {
             "status": "not_enough_context",
@@ -159,8 +180,6 @@ def build_final_report(
         p["page_tokens"] = token_by_page.get(key)
     reasoner_model_len = max(MIN_MODEL_LEN_REASONER, total_page_tokens + REASONER_CONTEXT_SAFETY_TOKENS)
 
-    del extractor_model
-    torch.cuda.empty_cache()
     reasoner_model, reasoner_tokenizer = instantiate_model(
         model_path=MODEL_REASONER_PATH,
         num_gpus=NUM_GPUS_REASONER,

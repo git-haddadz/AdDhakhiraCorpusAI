@@ -59,6 +59,7 @@ slurm-*.err
 # Project outputs / generated data
 # ------------------------------
 outputs/
+scripts/
 output/
 old_output/
 misc/
@@ -67,6 +68,7 @@ caches/
 .tmp/
 tmp/
 temp/
+database/vector_indexes/
 
 # Large binary artifacts / checkpoints
 *.ckpt
@@ -88,5 +90,3 @@ temp/
 # Keep directories if needed with placeholder files
 # !logs/.gitkeep
 # !outputs/.gitkeep
-src/build_hybrid_database.py
-src/config.py

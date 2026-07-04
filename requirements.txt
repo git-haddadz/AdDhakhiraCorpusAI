@@ -1,14 +1,14 @@
-# Runtime requirements for this repo (Colab-friendly, no Docker/Singularity needed)
+# Runtime requirements for this repo (Colab-friendly, no Docker)
 # If needed for CUDA wheels on Colab, uncomment the next line:
-# --extra-index-url https://download.pytorch.org/whl/cu124
+# --extra-index-url https://download.pytorch.org/whl/cu129
 
-torch==2.8.0
-transformers==4.57.1
-vllm==0.11.0
+torch==2.11.0+cu129
+transformers==5.10.1
+vllm==0.1.dev17235+gf52870f26.d20260603.cu129
 
 # HF / tokenization stack used by transformers + sentence-transformers
-huggingface-hub==0.34.0
-tokenizers==0.22.0
+huggingface-hub==1.16.1
+tokenizers==0.22.2
 safetensors==0.4.3
 sentencepiece==0.2.0
 tiktoken==0.7.0
@@ -17,12 +17,29 @@ tiktoken==0.7.0
 numpy==1.26.4
 scipy==1.11.4
 scikit-learn==1.7.2
-sentence-transformers==5.1.2
+sentence-transformers==5.3.0
 rank-bm25==0.2.2
-faiss-cpu==1.8.0.post1
+faiss==1.13.2
+turbovec==0.8.0
 
 # Used by vLLM / common inference flows
 accelerate==1.7.0
 einops==0.8.1
 datasets==4.5.0
 requests==2.32.3
+flashinfer-python==0.6.12
+triton==3.6.0
+pydantic==2.11.10
+httpx==0.27.0
+aiohttp==3.14.0
+openai==2.28.0
+anthropic==0.82.0
+
+# Web app stack for a persistent local/hosted interface
+gradio==6.15.1
+fastapi==0.115.14
+uvicorn==0.48.0
+python-dotenv==1.2.2
+jinja2==3.1.6
+pandas==2.3.3
+pyarrow==24.0.0

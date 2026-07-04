@@ -2,12 +2,56 @@ import json
 import logging
 import os
 import re
+import gc
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional
 
 import requests
 
+from src.config import (
+    JSON_GENERATION_MAX_RETRIES,
+    JSON_GENERATION_MAX_TOKEN_MULTIPLIER,
+    VLLM_GPU_MEMORY_UTILIZATION,
+    VLLM_MAX_NUM_BATCHED_TOKENS,
+)
+
 LOGGER = logging.getLogger(__name__)
+
+
+def _extract_json_object(raw: str) -> Dict:
+    text = (raw or "").strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    fenced = re.search(r"```(?:json)?\s*(\{.*\})\s*```", text, flags=re.DOTALL)
+    if fenced:
+        try:
+            return _extract_json_object(fenced.group(1))
+        except json.JSONDecodeError:
+            pass
+
+    decoder = json.JSONDecoder()
+    best = None
+    best_end = -1
+    last_error: Optional[json.JSONDecodeError] = None
+    for match in re.finditer(r"\{", text):
+        try:
+            candidate, end = decoder.raw_decode(text[match.start() :])
+        except json.JSONDecodeError as exc:
+            last_error = exc
+            continue
+        if isinstance(candidate, dict):
+            absolute_end = match.start() + end
+            if absolute_end > best_end:
+                best = candidate
+                best_end = absolute_end
+    if best is not None:
+        return best
+    if last_error is not None:
+        raise last_error
+    return json.loads(text)
 
 
 class LLMBackend(ABC):
@@ -44,6 +88,9 @@ class LLMBackend(ABC):
     def get_tokenizer(self):
         pass
 
+    def close(self) -> None:
+        pass
+
 
 class CustomBackend(LLMBackend):
     def __init__(self, model_path: str, num_gpus: int = 1, max_model_len: int = 1024):
@@ -63,15 +110,19 @@ class CustomBackend(LLMBackend):
             trust_remote_code=True,
         )
         model_dtype = "float16" if "awq" in model_path.lower() else "bfloat16"
+        max_num_batched_tokens = (
+            int(VLLM_MAX_NUM_BATCHED_TOKENS)
+            if VLLM_MAX_NUM_BATCHED_TOKENS is not None
+            else min(4096, max_model_len)
+        )
         self.model = LLM(
             model=model_path,
             tensor_parallel_size=tensor_parallel_size,
             max_model_len=max_model_len,
-            max_num_batched_tokens=min(4096, max_model_len),
+            max_num_batched_tokens=max_num_batched_tokens,
             max_num_seqs=1,
-            gpu_memory_utilization=0.90,
+            gpu_memory_utilization=float(VLLM_GPU_MEMORY_UTILIZATION),
             swap_space=0,
-            enforce_eager=False,
             dtype=model_dtype,
             disable_custom_all_reduce=True,
         )
@@ -93,13 +144,15 @@ class CustomBackend(LLMBackend):
             add_generation_prompt=True,
         )
         current_max_tokens = max(64, int(max_tokens))
+        token_limit = max(current_max_tokens, int(max_tokens) * int(JSON_GENERATION_MAX_TOKEN_MULTIPLIER))
         attempt_idx = 0
-        while True:
+        last_error = None
+        while attempt_idx < int(JSON_GENERATION_MAX_RETRIES):
             attempt_idx += 1
             sampling = SamplingParams(
                 temperature=temperature,
                 top_p=top_p,
-                max_tokens=current_max_tokens,
+                max_tokens=min(current_max_tokens, token_limit),
                 structured_outputs=StructuredOutputsParams(
                     json=schema,
                     disable_additional_properties=True,
@@ -107,12 +160,13 @@ class CustomBackend(LLMBackend):
             )
             output = self.model.generate(prompt, sampling)[0].outputs[0].text.strip()
             try:
-                return json.loads(output)
+                return _extract_json_object(output)
             except json.JSONDecodeError as exc:
+                last_error = exc
                 LOGGER.error(
                     "JSON parsing failed in CustomBackend.generate_json (attempt %s, max_tokens=%s): %s at line=%s col=%s pos=%s",
                     attempt_idx,
-                    current_max_tokens,
+                    min(current_max_tokens, token_limit),
                     exc.msg,
                     exc.lineno,
                     exc.colno,
@@ -121,7 +175,14 @@ class CustomBackend(LLMBackend):
                 LOGGER.error("---- RAW_MODEL_OUTPUT_ATTEMPT_%s_START ----", attempt_idx)
                 LOGGER.error(output)
                 LOGGER.error("---- RAW_MODEL_OUTPUT_ATTEMPT_%s_END ----", attempt_idx)
-                current_max_tokens = max(current_max_tokens + 1, int(current_max_tokens * 1.5))
+                current_max_tokens = min(
+                    token_limit,
+                    max(current_max_tokens + 1, int(current_max_tokens * 1.5)),
+                )
+        raise RuntimeError(
+            "Model did not return valid JSON after "
+            f"{JSON_GENERATION_MAX_RETRIES} attempts; last error: {last_error}"
+        )
 
     def generate_text(
         self,
@@ -156,6 +217,39 @@ class CustomBackend(LLMBackend):
     def get_tokenizer(self):
         return self.tokenizer
 
+    def close(self) -> None:
+        try:
+            engine = getattr(self.model, "llm_engine", None)
+            if engine is not None:
+                executor = getattr(engine, "model_executor", None)
+                if executor is not None and hasattr(executor, "shutdown"):
+                    executor.shutdown()
+                if hasattr(engine, "shutdown"):
+                    engine.shutdown()
+        except Exception as exc:
+            LOGGER.warning("vLLM engine shutdown raised: %s", exc)
+        try:
+            del self.model
+        except AttributeError:
+            pass
+        try:
+            import torch
+
+            if torch.distributed.is_available() and torch.distributed.is_initialized():
+                torch.distributed.destroy_process_group()
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+        except Exception as exc:
+            LOGGER.warning("CUDA cleanup raised: %s", exc)
+        try:
+            from vllm.distributed.parallel_state import destroy_distributed_environment, destroy_model_parallel
+
+            destroy_model_parallel()
+            destroy_distributed_environment()
+        except Exception:
+            pass
+        gc.collect()
+
 
 class GeminiBackend(LLMBackend):
     def __init__(self, model_name: str, api_key: Optional[str] = None):
@@ -169,15 +263,7 @@ class GeminiBackend(LLMBackend):
 
     @staticmethod
     def _extract_json(raw: str) -> Dict:
-        text = raw.strip()
-        fenced = re.search(r"```(?:json)?\s*(\{.*\})\s*```", text, flags=re.DOTALL)
-        if fenced:
-            text = fenced.group(1).strip()
-        if "{" in text and "}" in text:
-            start = text.find("{")
-            end = text.rfind("}")
-            text = text[start : end + 1]
-        return json.loads(text)
+        return _extract_json_object(raw)
 
     @staticmethod
     def _messages_to_parts(messages: List[Dict[str, str]]) -> Dict[str, str]:
@@ -282,3 +368,234 @@ class GeminiBackend(LLMBackend):
 
     def get_tokenizer(self):
         return None
+
+    def close(self) -> None:
+        self.session.close()
+
+
+class OpenAIBackend(LLMBackend):
+    def __init__(self, model_name: str, api_key: Optional[str] = None):
+        key = api_key or os.environ.get("OPENAI_API_KEY")
+        if not key:
+            raise ValueError("OPENAI_API_KEY is required when LLM_BACKEND='openai_api'.")
+        self.api_key = key
+        self.model_name = model_name
+        self.session = requests.Session()
+        self.base_url = "https://api.openai.com/v1/chat/completions"
+
+    def _generate_raw(
+        self,
+        messages: List[Dict[str, str]],
+        max_tokens: int,
+        temperature: float,
+        top_p: float,
+        response_format: Optional[Dict] = None,
+    ) -> str:
+        payload = {
+            "model": self.model_name,
+            "messages": messages,
+            "temperature": float(temperature),
+            "top_p": float(top_p),
+            "max_tokens": int(max(16, max_tokens)),
+        }
+        if response_format:
+            payload["response_format"] = response_format
+        resp = self.session.post(
+            self.base_url,
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=180,
+        )
+        if resp.status_code >= 400:
+            raise RuntimeError(f"OpenAI API error {resp.status_code}: {resp.text[:1200]}")
+        data = resp.json()
+        try:
+            return data["choices"][0]["message"]["content"].strip()
+        except Exception as exc:
+            raise RuntimeError(f"Unexpected OpenAI response: {json.dumps(data)[:1200]}") from exc
+
+    def generate_json(
+        self,
+        messages: List[Dict[str, str]],
+        schema: Dict,
+        max_tokens: int,
+        temperature: float = 0.0,
+        top_p: float = 1.0,
+    ) -> Dict:
+        schema_note = {
+            "role": "system",
+            "content": (
+                "Return valid JSON only. Do not use markdown fences.\n"
+                "Follow this JSON Schema exactly:\n"
+                f"{json.dumps(schema, ensure_ascii=False)}"
+            ),
+        }
+        attempts = 0
+        current_max_tokens = max(64, int(max_tokens))
+        while True:
+            attempts += 1
+            raw = self._generate_raw(
+                messages + [schema_note],
+                max_tokens=current_max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                response_format={"type": "json_object"},
+            )
+            try:
+                return _extract_json_object(raw)
+            except Exception:
+                if attempts >= int(JSON_GENERATION_MAX_RETRIES):
+                    raise
+                current_max_tokens = max(current_max_tokens + 1, int(current_max_tokens * 1.4))
+
+    def generate_text(
+        self,
+        messages: List[Dict[str, str]],
+        max_tokens: int,
+        temperature: float = 0.0,
+        top_p: float = 1.0,
+    ) -> str:
+        return self._generate_raw(messages, max_tokens=max_tokens, temperature=temperature, top_p=top_p)
+
+    def count_tokens(self, text: str) -> int:
+        return max(1, int(len(text or "") / 4))
+
+    def truncate_by_tokens(self, text: str, max_tokens: int) -> str:
+        max_chars = max(32, int(max_tokens) * 4)
+        if len(text) <= max_chars:
+            return text
+        return text[:max_chars]
+
+    def get_tokenizer(self):
+        return None
+
+    def close(self) -> None:
+        self.session.close()
+
+
+class AnthropicBackend(LLMBackend):
+    def __init__(self, model_name: str, api_key: Optional[str] = None):
+        key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+        if not key:
+            raise ValueError("ANTHROPIC_API_KEY is required when LLM_BACKEND='anthropic_api'.")
+        self.api_key = key
+        self.model_name = model_name
+        self.session = requests.Session()
+        self.base_url = "https://api.anthropic.com/v1/messages"
+
+    @staticmethod
+    def _split_messages(messages: List[Dict[str, str]]) -> Dict[str, object]:
+        system_parts = []
+        chat_messages = []
+        for msg in messages:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            if role == "system":
+                system_parts.append(content)
+            elif role == "assistant":
+                chat_messages.append({"role": "assistant", "content": content})
+            else:
+                chat_messages.append({"role": "user", "content": content})
+        return {
+            "system": "\n\n".join([p for p in system_parts if p.strip()]),
+            "messages": chat_messages,
+        }
+
+    def _generate_raw(
+        self,
+        messages: List[Dict[str, str]],
+        max_tokens: int,
+        temperature: float,
+        top_p: float,
+    ) -> str:
+        parts = self._split_messages(messages)
+        payload = {
+            "model": self.model_name,
+            "messages": parts["messages"],
+            "max_tokens": int(max(16, max_tokens)),
+            "temperature": float(temperature),
+            "top_p": float(top_p),
+        }
+        if parts["system"]:
+            payload["system"] = parts["system"]
+        resp = self.session.post(
+            self.base_url,
+            headers={
+                "x-api-key": self.api_key,
+                "anthropic-version": "2023-06-01",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=180,
+        )
+        if resp.status_code >= 400:
+            raise RuntimeError(f"Anthropic API error {resp.status_code}: {resp.text[:1200]}")
+        data = resp.json()
+        try:
+            return "".join(
+                part.get("text", "")
+                for part in data.get("content", [])
+                if part.get("type") == "text"
+            ).strip()
+        except Exception as exc:
+            raise RuntimeError(f"Unexpected Anthropic response: {json.dumps(data)[:1200]}") from exc
+
+    def generate_json(
+        self,
+        messages: List[Dict[str, str]],
+        schema: Dict,
+        max_tokens: int,
+        temperature: float = 0.0,
+        top_p: float = 1.0,
+    ) -> Dict:
+        schema_note = {
+            "role": "system",
+            "content": (
+                "Return valid JSON only. Do not use markdown fences.\n"
+                "Follow this JSON Schema exactly:\n"
+                f"{json.dumps(schema, ensure_ascii=False)}"
+            ),
+        }
+        attempts = 0
+        current_max_tokens = max(64, int(max_tokens))
+        while True:
+            attempts += 1
+            raw = self._generate_raw(
+                messages + [schema_note],
+                max_tokens=current_max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+            )
+            try:
+                return _extract_json_object(raw)
+            except Exception:
+                if attempts >= int(JSON_GENERATION_MAX_RETRIES):
+                    raise
+                current_max_tokens = max(current_max_tokens + 1, int(current_max_tokens * 1.4))
+
+    def generate_text(
+        self,
+        messages: List[Dict[str, str]],
+        max_tokens: int,
+        temperature: float = 0.0,
+        top_p: float = 1.0,
+    ) -> str:
+        return self._generate_raw(messages, max_tokens=max_tokens, temperature=temperature, top_p=top_p)
+
+    def count_tokens(self, text: str) -> int:
+        return max(1, int(len(text or "") / 4))
+
+    def truncate_by_tokens(self, text: str, max_tokens: int) -> str:
+        max_chars = max(32, int(max_tokens) * 4)
+        if len(text) <= max_chars:
+            return text
+        return text[:max_chars]
+
+    def get_tokenizer(self):
+        return None
+
+    def close(self) -> None:
+        self.session.close()
