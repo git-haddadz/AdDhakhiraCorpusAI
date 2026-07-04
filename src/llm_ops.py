@@ -3,15 +3,99 @@ import re
 from typing import Dict, List, Optional
 
 from src.config import (
+    ANTHROPIC_API_KEY,
     GEMINI_API_KEY,
     LLM_BACKEND,
+    OPENAI_API_KEY,
     REASONER_OUTPUT_MAX_TOKENS,
     REASONER_TEMPERATURE,
     REASONER_TOP_P,
     TRANSLATION_MAX_TOKENS,
 )
-from src.llm_backend import CustomBackend, GeminiBackend, LLMBackend
+from src.llm_backend import (
+    AnthropicBackend,
+    CustomBackend,
+    GeminiBackend,
+    LLMBackend,
+    OpenAIBackend,
+    _extract_json_object,
+)
 from src.text_utils import ARABIC_WORD_RE
+
+
+def _parse_jsonish(raw: str):
+    text = (raw or "").strip()
+    if not text:
+        return None
+    for candidate in (text, f"{{{text}}}"):
+        try:
+            return _extract_json_object(candidate)
+        except Exception:
+            pass
+    return None
+
+
+def _dedupe_arabic_terms(text: str, limit: int = 10) -> List[str]:
+    terms: List[str] = []
+    seen = set()
+    for term in ARABIC_WORD_RE.findall(text or ""):
+        term = term.strip()
+        if len(term) < 2 or term in seen:
+            continue
+        seen.add(term)
+        terms.append(term)
+        if len(terms) >= limit:
+            break
+    return terms
+
+
+def _coerce_keyword_candidates(raw) -> List[str]:
+    if isinstance(raw, dict):
+        if isinstance(raw.get("keywords"), list):
+            return [str(item) for item in raw["keywords"]]
+        for value in raw.values():
+            if isinstance(value, list):
+                return [str(item) for item in value]
+            if isinstance(value, str) and ARABIC_WORD_RE.search(value):
+                return _dedupe_arabic_terms(value)
+        return []
+    if isinstance(raw, list):
+        return [str(item) for item in raw]
+    if isinstance(raw, str):
+        parsed = _parse_jsonish(raw)
+        if parsed is not None:
+            return _coerce_keyword_candidates(parsed)
+        lines = [line.strip("-* \t\r\n") for line in raw.splitlines() if line.strip()]
+        if len(lines) > 1:
+            return lines
+        return _dedupe_arabic_terms(raw)
+    return []
+
+
+def _coerce_translation(raw, fallback: str) -> str:
+    if isinstance(raw, dict):
+        for key in ("question_ar", "translation", "translated_question", "arabic", "text"):
+            value = raw.get(key)
+            if isinstance(value, str) and ARABIC_WORD_RE.search(value):
+                return value.strip()
+        for value in raw.values():
+            if isinstance(value, str) and ARABIC_WORD_RE.search(value):
+                return value.strip()
+        return fallback
+    if not isinstance(raw, str):
+        return fallback
+    parsed = _parse_jsonish(raw)
+    if parsed is not None:
+        return _coerce_translation(parsed, fallback)
+    if not ARABIC_WORD_RE.search(raw):
+        return fallback
+    cleaned = re.sub(
+        r'^\s*["\']?(?:question_ar|translation|translated_question|arabic|text)["\']?\s*:\s*',
+        "",
+        raw.strip(),
+        flags=re.IGNORECASE,
+    )
+    return cleaned.strip().strip("{}").strip().strip('"').strip("'") or fallback
 
 
 def instantiate_model(
@@ -22,10 +106,17 @@ def instantiate_model(
     if LLM_BACKEND == "gemini_api":
         backend = GeminiBackend(model_name=model_path, api_key=GEMINI_API_KEY or None)
         return backend, backend.get_tokenizer()
+    if LLM_BACKEND == "openai_api":
+        backend = OpenAIBackend(model_name=model_path, api_key=OPENAI_API_KEY or None)
+        return backend, backend.get_tokenizer()
+    if LLM_BACKEND == "anthropic_api":
+        backend = AnthropicBackend(model_name=model_path, api_key=ANTHROPIC_API_KEY or None)
+        return backend, backend.get_tokenizer()
 
-    if LLM_BACKEND != "custom":
+    if LLM_BACKEND != "default":
         raise ValueError(
-            f"Unsupported LLM_BACKEND='{LLM_BACKEND}'. Expected one of: custom, gemini_api."
+            "Unsupported LLM_BACKEND="
+            f"{LLM_BACKEND!r}. Expected one of: default, gemini_api, openai_api, anthropic_api."
         )
 
     backend = CustomBackend(
@@ -80,16 +171,22 @@ Rules:
     ]
     try:
         data = generate_json_output(model, messages, schema, max_tokens=256, temperature=0.0, top_p=1.0)
-        kws = data.get("keywords", [])
+        kws = _coerce_keyword_candidates(data)
     except Exception:
         raw = model.generate_text(messages, max_tokens=128, temperature=0.0, top_p=1.0)
-        kws = [line.strip("-* \t\r\n") for line in raw.splitlines() if line.strip()]
+        kws = _coerce_keyword_candidates(raw)
 
     filtered = []
     for kw in kws:
         kw = re.sub(r"^\d+[\).\-\s]*", "", kw).strip()
         if kw and ARABIC_WORD_RE.search(kw):
             filtered.append(kw)
+    if len(filtered) < 4:
+        for term in _dedupe_arabic_terms(question):
+            if term not in filtered:
+                filtered.append(term)
+            if len(filtered) >= 10:
+                break
     return filtered[:10]
 
 
@@ -122,11 +219,11 @@ Rules:
             temperature=0.0,
             top_p=1.0,
         )
-        translated = str(data.get("question_ar", "")).strip()
+        translated = _coerce_translation(data, question)
         return translated or question
     except Exception:
         raw = model.generate_text(messages, max_tokens=220, temperature=0.0, top_p=1.0).strip()
-        return raw or question
+        return _coerce_translation(raw, question)
 
 
 def generate_pedagogical_answer(
