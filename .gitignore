@@ -90,3 +90,4 @@ database/vector_indexes/
 # Keep directories if needed with placeholder files
 # !logs/.gitkeep
 # !outputs/.gitkeep
+src/config.py
