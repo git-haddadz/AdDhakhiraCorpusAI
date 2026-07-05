@@ -47,7 +47,7 @@ Il s'agit d'un outil d'aide à la recherche pour étudiants et chercheurs. Son r
 La pipeline garde le même flux RAG dans tous les modes :
 
 - extraction de mots-clés arabes ;
-- retrieval dense sur les pages du corpus ;
+- retrieval dense sur les pages du corpus, activé par défaut mais optionnel ;
 - génération de réponse à partir des pages récupérées ;
 - sortie HTML.
 
@@ -83,7 +83,7 @@ Le notebook peut remplacer uniquement les deux LLM par une API tout en gardant l
 
 Ces modes sont utiles si l'utilisateur n'a pas assez de mémoire GPU locale mais dispose d'un compte API.
 
-Tous les IDs de modèles sont configurables dans le notebook et dans `src/config.py`. En usage local, les chemins doivent pointer vers des modèles disponibles sur la machine ou dans le cache Hugging Face configuré.
+Tous les IDs de modèles sont configurables dans le notebook et dans `src/config.py`. En usage local, les chemins doivent pointer vers des modèles disponibles sur la machine ou dans le cache Hugging Face configuré. Le retrieval dense reste recommandé ; `USE_DENSE_RETRIEVAL` permet seulement de le désactiver dans l’interface web comme fallback quand la machine ne peut pas faire tourner le dense.
 
 ## 5) Lancer localement
 
@@ -158,7 +158,7 @@ Le notebook propose une liste déroulante :
 
 Quand un mode API est sélectionné, le champ de clé correspondant apparaît. Les modes API remplacent seulement l'extractor et le reasoner ; l'embedding, le retrieval, les pages sélectionnées, le format de sortie, la sauvegarde Drive et le téléchargement local HTML restent identiques.
 
-Les champs modèles peuvent être modifiés dans le notebook avant l'initialisation.
+Les champs modèles peuvent être modifiés dans le notebook avant l'initialisation. `MODEL_STORAGE` contrôle où les modèles téléchargés sont stockés : persistance Drive avec `drive`, ou stockage temporaire dans la session Colab avec `colab_session`.
 
 ## 7) Le projet est-il modifiable ?
 

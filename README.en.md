@@ -47,7 +47,7 @@ This is an AI-assisted bibliographic research tool for students and researchers.
 The pipeline keeps the same RAG flow across all inference modes:
 
 - Arabic keyword extraction
-- dense retrieval over the corpus pages
+- dense retrieval over the corpus pages, enabled by default but optional
 - answer generation from retrieved pages
 - HTML output
 
@@ -83,7 +83,7 @@ The notebook can also replace only the two LLMs with an API backend while keepin
 
 These modes are useful for users who do not have enough local GPU memory but do have an API account.
 
-All model IDs are configurable in the notebook and in `src/config.py`. For local runs, the model values must point to model directories available on the machine, or to models already available in the configured Hugging Face/cache environment.
+All model IDs are configurable in the notebook and in `src/config.py`. For local runs, the model values must point to model directories available on the machine, or to models already available in the configured Hugging Face/cache environment. Dense retrieval is recommended; `USE_DENSE_RETRIEVAL` in the web UI can disable it only as a fallback when the machine cannot run dense retrieval.
 
 ## 5) Run locally
 
@@ -163,7 +163,7 @@ The notebook exposes a dropdown for:
 
 When an API mode is selected, the corresponding API key field appears. API modes replace only the extractor and reasoner LLMs; the embedding model, retrieval, selected pages, output format, Drive save, and local HTML download stay the same.
 
-You can edit the model fields in the notebook before initialization if you want to test different local models, API models, or embedding models.
+You can edit the model fields in the notebook before initialization if you want to test different local models, API models, or embedding models. `MODEL_STORAGE` controls whether downloaded models are kept persistently in Drive (`drive`) or only in the current Colab runtime (`colab_session`).
 
 ## 7) Is the project modifiable?
 
