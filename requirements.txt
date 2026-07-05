@@ -1,10 +1,10 @@
 # Runtime requirements for this repo (Colab-friendly, no Docker)
-# CUDA 12.8 wheels for Colab/PyTorch/vLLM alignment.
---extra-index-url https://download.pytorch.org/whl/cu128
+# CUDA 12.9 wheels for Colab/PyTorch/vLLM 0.24.0 alignment.
+--extra-index-url https://download.pytorch.org/whl/cu129
 
 torch==2.11.0
 transformers==5.10.1
-https://github.com/vllm-project/vllm/releases/download/v0.24.0/vllm-0.24.0+cu128-cp38-abi3-manylinux_2_35_x86_64.whl
+https://github.com/vllm-project/vllm/releases/download/v0.24.0/vllm-0.24.0%2Bcu129-cp38-abi3-manylinux_2_28_x86_64.whl
 
 # HF / tokenization stack used by transformers + sentence-transformers
 huggingface-hub==1.16.1

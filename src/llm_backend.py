@@ -3,6 +3,8 @@ import logging
 import os
 import re
 import gc
+import sys
+from contextlib import contextmanager
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional
 
@@ -16,6 +18,34 @@ from src.config import (
 )
 
 LOGGER = logging.getLogger(__name__)
+
+
+@contextmanager
+def _stdio_with_fileno_for_vllm():
+    """Colab/IPython stdout has no fileno(), but vLLM V1 expects one."""
+    def has_fileno(stream) -> bool:
+        try:
+            stream.fileno()
+            return True
+        except Exception:
+            return False
+
+    if has_fileno(sys.stdout) and has_fileno(sys.stderr):
+        yield
+        return
+
+    old_stdout, old_stderr = sys.stdout, sys.stderr
+    stdout = os.fdopen(os.dup(1), "w", buffering=1)
+    stderr = os.fdopen(os.dup(2), "w", buffering=1)
+    try:
+        sys.stdout = stdout
+        sys.stderr = stderr
+        yield
+    finally:
+        sys.stdout = old_stdout
+        sys.stderr = old_stderr
+        stdout.close()
+        stderr.close()
 
 
 def _extract_json_object(raw: str) -> Dict:
@@ -115,17 +145,18 @@ class CustomBackend(LLMBackend):
             if VLLM_MAX_NUM_BATCHED_TOKENS is not None
             else min(4096, max_model_len)
         )
-        self.model = LLM(
-            model=model_path,
-            tensor_parallel_size=tensor_parallel_size,
-            max_model_len=max_model_len,
-            max_num_batched_tokens=max_num_batched_tokens,
-            max_num_seqs=1,
-            gpu_memory_utilization=float(VLLM_GPU_MEMORY_UTILIZATION),
-            swap_space=0,
-            dtype=model_dtype,
-            disable_custom_all_reduce=True,
-        )
+        with _stdio_with_fileno_for_vllm():
+            self.model = LLM(
+                model=model_path,
+                tensor_parallel_size=tensor_parallel_size,
+                max_model_len=max_model_len,
+                max_num_batched_tokens=max_num_batched_tokens,
+                max_num_seqs=1,
+                gpu_memory_utilization=float(VLLM_GPU_MEMORY_UTILIZATION),
+                swap_space=0,
+                dtype=model_dtype,
+                disable_custom_all_reduce=True,
+            )
 
     def generate_json(
         self,
