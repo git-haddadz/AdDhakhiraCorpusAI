@@ -1,21 +1,21 @@
 services:
-  projet_rag-dev:
+  addhakhira-ai-dev:
     build:
       context: .
       dockerfile: Dockerfile
       network: host
-    image: projet_rag:gb10
-    working_dir: /workspace/projet_rag
+    image: addhakhira-ai:latest
+    working_dir: /workspace/AdDhakhiraCorpusAI
     volumes:
-      - .:/workspace/projet_rag
-      - ./models:/workspace/projet_rag/models
-      - ./outputs:/workspace/projet_rag/outputs
-      - ./database/vector_indexes:/workspace/projet_rag/database/vector_indexes
+      - .:/workspace/AdDhakhiraCorpusAI
+      - ./models:/workspace/AdDhakhiraCorpusAI/models
+      - ./outputs:/workspace/AdDhakhiraCorpusAI/outputs
+      - ./database/vector_indexes:/workspace/AdDhakhiraCorpusAI/database/vector_indexes
     environment:
       HF_TOKEN: ${HF_TOKEN:-}
-      HF_HOME: /workspace/projet_rag/.cache/huggingface
-      TRANSFORMERS_CACHE: /workspace/projet_rag/.cache/huggingface/transformers
-      SENTENCE_TRANSFORMERS_HOME: /workspace/projet_rag/.cache/sentence_transformers
+      HF_HOME: /workspace/AdDhakhiraCorpusAI/.cache/huggingface
+      TRANSFORMERS_CACHE: /workspace/AdDhakhiraCorpusAI/.cache/huggingface/transformers
+      SENTENCE_TRANSFORMERS_HOME: /workspace/AdDhakhiraCorpusAI/.cache/sentence_transformers
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
     gpus: all

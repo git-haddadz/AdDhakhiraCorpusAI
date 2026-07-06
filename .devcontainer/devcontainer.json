@@ -1,8 +1,8 @@
 {
-  "name": "projet_rag",
+  "name": "AdDhakhiraCorpusAI",
   "dockerComposeFile": "../docker-compose.yml",
-  "service": "projet_rag-dev",
-  "workspaceFolder": "/workspace/projet_rag",
+  "service": "addhakhira-ai-dev",
+  "workspaceFolder": "/workspace/AdDhakhiraCorpusAI",
   "shutdownAction": "stopCompose",
   "overrideCommand": true,
   "customizations": {

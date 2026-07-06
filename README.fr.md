@@ -107,7 +107,7 @@ docker compose build
 Démarrer un conteneur interactif :
 
 ```bash
-docker compose run --rm projet_rag-dev
+docker compose run --rm addhakhira-ai-dev
 ```
 
 Toutes les commandes suivantes de cette section sont à exécuter dans le conteneur.

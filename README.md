@@ -107,7 +107,7 @@ docker compose build
 شغّل حاوية تفاعلية:
 
 ```bash
-docker compose run --rm projet_rag-dev
+docker compose run --rm addhakhira-ai-dev
 ```
 
 كل الأوامر التالية في هذا القسم تُنفّذ داخل الحاوية.

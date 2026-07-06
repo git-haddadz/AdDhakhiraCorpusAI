@@ -107,7 +107,7 @@ docker compose build
 Start an interactive container:
 
 ```bash
-docker compose run --rm projet_rag-dev
+docker compose run --rm addhakhira-ai-dev
 ```
 
 All following commands in this section are run inside the container.
