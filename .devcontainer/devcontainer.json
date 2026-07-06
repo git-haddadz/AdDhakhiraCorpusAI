@@ -1,0 +1,21 @@
+{
+  "name": "projet_rag",
+  "dockerComposeFile": "../docker-compose.yml",
+  "service": "projet_rag-dev",
+  "workspaceFolder": "/workspace/projet_rag",
+  "shutdownAction": "stopCompose",
+  "overrideCommand": true,
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/bin/python3",
+        "terminal.integrated.defaultProfile.linux": "bash"
+      },
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance"
+      ]
+    }
+  },
+  "postCreateCommand": "mkdir -p models outputs database/vector_indexes .cache/huggingface .cache/sentence_transformers"
+}

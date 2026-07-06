@@ -59,7 +59,9 @@ slurm-*.err
 # Project outputs / generated data
 # ------------------------------
 outputs/
+models/
 scripts/
+.cache/
 output/
 old_output/
 misc/

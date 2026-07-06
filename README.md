@@ -94,52 +94,119 @@ git clone https://github.com/git-haddadz/AdDhakhiraCorpusAI.git
 cd AdDhakhiraCorpusAI
 ```
 
-2. إنشاء بيئة Python وتفعيلها
+2. بناء وتشغيل بيئة Docker
+
+التشغيل المحلي يتم داخل بيئة Docker المرفقة بالمشروع.
+
+ابنِ الصورة:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -U pip
-pip install -r requirements.txt
+docker compose build
 ```
 
-3. إنشاء ملف الإعداد المحلي
+شغّل حاوية تفاعلية:
 
-انسخ القالب ثم عدّل القيم حسب جهازك:
+```bash
+docker compose run --rm projet_rag-dev
+```
+
+كل الأوامر التالية في هذا القسم تُنفّذ داخل الحاوية.
+
+3. إنشاء ملف الإعداد المحلي والمجلدات
+
+انسخ قالب الإعداد:
 
 ```bash
 cp src/config_template.py src/config.py
 ```
 
-في وضع `default` عدّل:
+أنشئ المجلدات المحلية التي يستعملها الإعداد الافتراضي:
 
-- `MODEL_EXTRACTOR_PATH`
-- `MODEL_REASONER_PATH`
-- `EMBEDDING_MODEL`
-- `NUM_GPUS_EXTRACTOR`
-- `NUM_GPUS_REASONER`
+```bash
+mkdir -p models outputs database/vector_indexes
+```
 
-في أوضاع API عدّل:
+4. تنزيل النماذج الافتراضية
+
+يستعمل إعداد `default` النماذج التالية:
+
+- Extractor: `google/gemma-4-12B-it`
+- Reasoner: `Qwen/Qwen3.6-35B-A3B`
+- Embedding: `Qwen/Qwen3-Embedding-4B`
+
+نزّل النماذج داخل المجلد المحلي `models/`:
+
+```bash
+hf download google/gemma-4-12B-it \
+  --local-dir models/gemma-4-12B-it
+```
+
+```bash
+hf download Qwen/Qwen3.6-35B-A3B \
+  --local-dir models/Qwen3.6-35B-A3B
+```
+
+```bash
+hf download Qwen/Qwen3-Embedding-4B \
+  --local-dir models/Qwen__Qwen3-Embedding-4B
+```
+
+5. تعديل `src/config.py`
+
+في إعداد `default`، اضبط القيم التالية:
+
+```python
+LLM_BACKEND = "default"
+
+MODEL_EXTRACTOR_PATH = "models/gemma-4-12B-it"
+MODEL_REASONER_PATH = "models/Qwen3.6-35B-A3B"
+
+EMBEDDING_MODEL = "models/Qwen__Qwen3-Embedding-4B"
+
+NUM_GPUS_EXTRACTOR = 1
+NUM_GPUS_REASONER = 1
+
+ENABLE_DENSE_RETRIEVAL = True
+VECTOR_INDEX_BACKEND = "faiss"
+```
+
+عدّل `NUM_GPUS_EXTRACTOR` و `NUM_GPUS_REASONER` عند الحاجة حسب جهازك.
+
+في أوضاع API اضبط:
 
 - `LLM_BACKEND`
 - `MODEL_EXTRACTOR_PATH`
 - `MODEL_REASONER_PATH`
 - مفتاح API الموافق
 
-4. بناء فهرس FAISS dense
+6. بناء فهرس FAISS dense
 
 الوضع الافتراضي يستعمل retrieval dense مع `Qwen/Qwen3-Embedding-4B`. يُبنى الفهرس مرة واحدة قبل تشغيل التطبيق، ثم يُعاد استعماله إذا كان متوافقاً.
 
+استعمل نفس مسار نموذج embedding الموجود في `EMBEDDING_MODEL` داخل `src/config.py`:
+
 ```bash
-python -m src.vector_index   --model "/path/to/Qwen__Qwen3-Embedding-4B"   --backend faiss   --json-input ./database   --output-dir ./database/vector_indexes
+python3 -m src.vector_index \
+  --model "models/Qwen__Qwen3-Embedding-4B" \
+  --backend faiss \
+  --json-input ./database \
+  --output-dir ./database/vector_indexes \
+  --show-progress
 ```
 
-استعمل نفس مسار أو ID نموذج embedding الموجود في `EMBEDDING_MODEL` داخل `src/config.py`.
-
-5. تشغيل المدخل الرئيسي
+7. تشغيل المدخل الرئيسي
 
 ```bash
-python -u main.py   --question "كيف تكون صلاة الجنازة عند المالكية؟"   --output "./outputs/output_local.html"   --diagnostic-coherence
+python3 -u main.py \
+  --question "Write your question here" \
+  --output "./outputs/output_local.html" \
+  --diagnostic-coherence
+```
+
+سيُكتب ملف HTML الناتج في:
+
+```text
+./outputs/output_local.html
 ```
 
 ## ٦) تجربة سريعة

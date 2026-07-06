@@ -88,34 +88,89 @@ All model IDs are configurable in the notebook and in `src/config.py`. For local
 ## 5) Run locally
 
 1. Clone the repository
+
 ```bash
 git clone https://github.com/git-haddadz/AdDhakhiraCorpusAI.git
 cd AdDhakhiraCorpusAI
 ```
 
-2. Create and activate a Python environment
+2. Build and start the Docker environment
+
+The local setup runs inside the provided Docker environment.
+
+Build the image:
+
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -U pip
-pip install -r requirements.txt
+docker compose build
 ```
 
-3. Create your local config
+Start an interactive container:
 
-Copy the template and edit it for your machine:
+```bash
+docker compose run --rm projet_rag-dev
+```
+
+All following commands in this section are run inside the container.
+
+3. Create your local config and folders
+
+Copy the configuration template:
 
 ```bash
 cp src/config_template.py src/config.py
 ```
 
-For `default`, set:
+Create the local folders used by the default setup:
 
-- `MODEL_EXTRACTOR_PATH`
-- `MODEL_REASONER_PATH`
-- `EMBEDDING_MODEL`
-- `NUM_GPUS_EXTRACTOR`
-- `NUM_GPUS_REASONER`
+```bash
+mkdir -p models outputs database/vector_indexes
+```
+
+4. Download the default models
+
+The `default` configuration uses:
+
+- Extractor: `google/gemma-4-12B-it`
+- Reasoner: `Qwen/Qwen3.6-35B-A3B`
+- Embedding: `Qwen/Qwen3-Embedding-4B`
+
+Download them into the local `models/` folder:
+
+```bash
+hf download google/gemma-4-12B-it \
+  --local-dir models/gemma-4-12B-it
+```
+
+```bash
+hf download Qwen/Qwen3.6-35B-A3B \
+  --local-dir models/Qwen3.6-35B-A3B
+```
+
+```bash
+hf download Qwen/Qwen3-Embedding-4B \
+  --local-dir models/Qwen__Qwen3-Embedding-4B
+```
+
+5. Edit `src/config.py`
+
+For the `default` configuration, set:
+
+```python
+LLM_BACKEND = "default"
+
+MODEL_EXTRACTOR_PATH = "models/gemma-4-12B-it"
+MODEL_REASONER_PATH = "models/Qwen3.6-35B-A3B"
+
+EMBEDDING_MODEL = "models/Qwen__Qwen3-Embedding-4B"
+
+NUM_GPUS_EXTRACTOR = 1
+NUM_GPUS_REASONER = 1
+
+ENABLE_DENSE_RETRIEVAL = True
+VECTOR_INDEX_BACKEND = "faiss"
+```
+
+Adjust `NUM_GPUS_EXTRACTOR` and `NUM_GPUS_REASONER` if needed for your machine.
 
 For API modes, set:
 
@@ -124,27 +179,34 @@ For API modes, set:
 - `MODEL_REASONER_PATH`
 - the corresponding API key field
 
-4. Prepare the dense FAISS index
+6. Prepare the dense FAISS index
 
 The default pipeline uses dense retrieval with `Qwen/Qwen3-Embedding-4B`. Build the index once before running the app. Re-running this command reuses the existing compatible index.
 
+Use the same embedding model path as `EMBEDDING_MODEL` in `src/config.py`:
+
 ```bash
-python -m src.vector_index \
-  --model "/path/to/Qwen__Qwen3-Embedding-4B" \
+python3 -m src.vector_index \
+  --model "models/Qwen__Qwen3-Embedding-4B" \
   --backend faiss \
   --json-input ./database \
-  --output-dir ./database/vector_indexes
+  --output-dir ./database/vector_indexes \
+  --show-progress
 ```
 
-Use the same embedding model path or ID as `EMBEDDING_MODEL` in `src/config.py`.
-
-5. Run the main entrypoint
+7. Run the main entrypoint
 
 ```bash
-python -u main.py \
-  --question "كيف تكون صلاة الجنازة عند المالكية؟" \
+python3 -u main.py \
+  --question "Write your question here" \
   --output "./outputs/output_local.html" \
   --diagnostic-coherence
+```
+
+The generated HTML file will be written to:
+
+```text
+./outputs/output_local.html
 ```
 
 ## 6) Demo - Get Started

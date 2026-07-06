@@ -1,0 +1,27 @@
+services:
+  projet_rag-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      network: host
+    image: projet_rag:gb10
+    working_dir: /workspace/projet_rag
+    volumes:
+      - .:/workspace/projet_rag
+      - ./models:/workspace/projet_rag/models
+      - ./outputs:/workspace/projet_rag/outputs
+      - ./database/vector_indexes:/workspace/projet_rag/database/vector_indexes
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+      HF_HOME: /workspace/projet_rag/.cache/huggingface
+      TRANSFORMERS_CACHE: /workspace/projet_rag/.cache/huggingface/transformers
+      SENTENCE_TRANSFORMERS_HOME: /workspace/projet_rag/.cache/sentence_transformers
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    gpus: all
+    network_mode: host
+    ipc: host
+    shm_size: "32gb"
+    stdin_open: true
+    tty: true
+    command: bash
