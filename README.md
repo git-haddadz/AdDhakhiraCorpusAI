@@ -194,7 +194,9 @@ python3 -m src.vector_index \
   --show-progress
 ```
 
-7. تشغيل المدخل الرئيسي
+7. التشغيل محلياً
+
+### الخيار أ - التشغيل من الطرفية
 
 ```bash
 python3 -u main.py \
@@ -208,6 +210,22 @@ python3 -u main.py \
 ```text
 ./outputs/output_local.html
 ```
+
+### الخيار ب - واجهة محادثة محلية
+
+يمكن أيضاً تشغيل واجهة محادثة محلية من نفس بيئة Docker:
+
+```bash
+python3 -m src.web_app --host 0.0.0.0 --port 7860
+```
+
+مع إعداد Docker Compose المرفق، يستعمل التطبيق شبكة المضيف. افتح الواجهة المحلية على:
+
+```text
+http://localhost:7860
+```
+
+تقرأ الواجهة مسارات النماذج المحلية والإعدادات الافتراضية من `src/config.py`. كما توفر قائمة لاختيار inference المحلي أو Gemini API أو ChatGPT/OpenAI API أو Claude/Anthropic API. يمكن إدخال مفاتيح API مباشرة في الواجهة، ويمكن تعطيل retrieval dense بالـ embeddings من خانة الاختيار عند الحاجة.
 
 ## ٦) تجربة سريعة
 

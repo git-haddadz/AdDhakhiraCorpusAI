@@ -194,7 +194,9 @@ python3 -m src.vector_index \
   --show-progress
 ```
 
-7. Lancer le point d'entrée principal
+7. Lancer localement
+
+### Option A - Point d'entrée terminal
 
 ```bash
 python3 -u main.py \
@@ -208,6 +210,22 @@ Le fichier HTML généré sera écrit dans :
 ```text
 ./outputs/output_local.html
 ```
+
+### Option B - Interface de chat locale
+
+Vous pouvez aussi lancer une interface de chat locale depuis le même environnement Docker :
+
+```bash
+python3 -m src.web_app --host 0.0.0.0 --port 7860
+```
+
+Avec la configuration Docker Compose fournie, le service utilise le réseau de l'hôte. Ouvrez l'interface locale à l'adresse :
+
+```text
+http://localhost:7860
+```
+
+L'interface lit les chemins des modèles locaux et les paramètres par défaut depuis `src/config.py`. Elle propose aussi une liste déroulante pour l'inférence locale, Gemini API, ChatGPT/OpenAI API et Claude/Anthropic API. Les clés API peuvent être saisies directement dans l'interface, et le retrieval dense par embeddings peut être désactivé avec la case à cocher si nécessaire.
 
 ## 6) Démo - démarrage rapide
 

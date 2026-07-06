@@ -194,7 +194,9 @@ python3 -m src.vector_index \
   --show-progress
 ```
 
-7. Run the main entrypoint
+7. Run locally
+
+### Option A - Terminal entrypoint
 
 ```bash
 python3 -u main.py \
@@ -208,6 +210,22 @@ The generated HTML file will be written to:
 ```text
 ./outputs/output_local.html
 ```
+
+### Option B - Local Chat interface
+
+You can also run a local chat interface from the same Docker environment:
+
+```bash
+python3 -m src.web_app --host 0.0.0.0 --port 7860
+```
+
+With the provided Docker Compose setup, the service uses host networking. Open the local interface at:
+
+```text
+http://localhost:7860
+```
+
+The interface reads the local model paths and default settings from `src/config.py`. It also provides a backend dropdown for local inference, Gemini API, ChatGPT/OpenAI API, and Claude/Anthropic API. API keys can be entered directly in the interface, and dense embedding retrieval can be disabled from the checkbox if needed.
 
 ## 6) Demo - Get Started
 
