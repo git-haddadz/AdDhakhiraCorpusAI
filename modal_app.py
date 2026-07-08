@@ -15,6 +15,7 @@ PORT = 7860
 
 GPU = "A100-80GB"
 VOLUME_NAME = "addhakhira-persist"
+AUTH_ENV_VAR = "ADDHAKHIRA_AUTH"
 
 app = modal.App(APP_NAME)
 persist_volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
@@ -39,6 +40,32 @@ image = (
 
 def _path(path: PurePosixPath) -> Path:
     return Path(str(path))
+
+
+def _auth_credentials():
+    raw_auth = os.environ.get(AUTH_ENV_VAR, "").strip()
+    if not raw_auth:
+        return None
+
+    credentials = []
+    for raw_pair in raw_auth.replace("\n", ",").split(","):
+        pair = raw_pair.strip()
+        if not pair:
+            continue
+        if ":" not in pair:
+            raise ValueError(
+                f"{AUTH_ENV_VAR} must use the format user:password,user2:password2"
+            )
+        username, password = pair.split(":", 1)
+        username = username.strip()
+        password = password.strip()
+        if not username or not password:
+            raise ValueError(
+                f"{AUTH_ENV_VAR} contains an empty username or password."
+            )
+        credentials.append((username, password))
+
+    return credentials or None
 
 
 def _write_modal_config() -> None:
@@ -143,6 +170,7 @@ def prepare_models_and_index(force_index: bool = False) -> None:
     image=image,
     gpu=GPU,
     volumes={str(PERSIST_DIR): persist_volume},
+    secrets=[modal.Secret.from_name("addhakhira-auth")],
     timeout=60 * 60,
     max_containers=1,
     scaledown_window=30,
@@ -167,6 +195,7 @@ def gradio_webapp():
         demo,
         path="/",
         allowed_paths=_allowed_paths(),
+        auth=_auth_credentials(),
     )
 
 

@@ -51,7 +51,23 @@ Check that Modal is connected:
 modal profile current
 ```
 
-## 5) Choose the GPU
+## 5) Create the login secret
+
+In the [Modal Secrets dashboard](https://modal.com/secrets), create a secret named:
+
+```text
+addhakhira-auth
+```
+
+Add one environment variable named `ADDHAKHIRA_AUTH`. Its value must contain every authorized username and password in this format:
+
+```text
+username1:password1,username2:password2,username3:password3
+```
+
+Choose your own usernames and passwords, keep them private, and separate each account with a comma.
+
+## 6) Choose the GPU
 
 Open `modal_app.py` and choose the GPU:
 
@@ -67,7 +83,7 @@ GPU = "A100-80GB"
 
 You may choose another Modal GPU if your account supports it, but `A100-80GB` is the recommended option for the default models used by this branch. See Modal GPU pricing here: https://modal.com/pricing
 
-## 6) Prepare the Modal volume
+## 7) Prepare the Modal volume
 
 Run this once before the first deployment:
 
@@ -77,7 +93,7 @@ modal run modal_app.py --prepare
 
 This downloads the default models into the Modal volume and prepares the dense FAISS index.
 
-## 7) Deploy the web app
+## 8) Deploy the web app
 
 After the volume is ready:
 
@@ -93,7 +109,7 @@ https://<your-modal-workspace>--addhakhira-webapp.modal.run
 
 Open the URL in your browser.
 
-## 8) Use the web app
+## 9) Use the web app
 
 Recommended interface settings:
 
@@ -104,7 +120,7 @@ You can write the question in Arabic or French.
 
 When the answer is ready, use the download button to save the generated bibliographic synthesis.
 
-## 9) Redeploy after code changes
+## 10) Redeploy after code changes
 
 If you change the Python code, the UI, the Dockerfile, or `modal_app.py`, deploy again:
 
