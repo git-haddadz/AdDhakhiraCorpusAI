@@ -11,12 +11,7 @@ WORKDIR /workspace/AdDhakhiraCorpusAI
 
 COPY requirements.txt /tmp/requirements.txt
 
-# The NVIDIA vLLM image provides the validated GPU/runtime stack already.
-# Keep requirements.txt as the source of truth, but do not reinstall packages
-# that are pinned by the base image or by architecture-specific GPU wheels.
-RUN grep -vE '^(torch==|numpy==|https://github.com/vllm-project/vllm|flashinfer-python==|triton==)' \
-        /tmp/requirements.txt > /tmp/requirements.runtime.txt \
-    && python3 -m pip install --upgrade pip \
-    && python3 -m pip install -r /tmp/requirements.runtime.txt
+RUN python3 -m pip install --upgrade pip \
+    && PIP_CONSTRAINT= python3 -m pip install -r /tmp/requirements.txt
 
 CMD ["bash"]

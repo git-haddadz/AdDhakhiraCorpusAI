@@ -1,6 +1,6 @@
-import os
 import gc
-from typing import Dict, List, Optional, Tuple
+import os
+from typing import Callable, Dict, List, Optional, Tuple
 
 import torch
 from transformers import AutoTokenizer
@@ -31,6 +31,14 @@ from src.llm_ops import (
 from src.reporting import print_final
 from src.retrieval import HybridRetriever, top_pages_from_chunks
 from src.text_utils import is_mostly_arabic, truncate_text_by_tokens
+
+ProgressCallback = Callable[[Dict[str, object]], None]
+
+
+def _emit_progress(progress_callback: Optional[ProgressCallback], message: str, **payload) -> None:
+    if progress_callback is None:
+        return
+    progress_callback({"message": message, **payload})
 
 
 def _estimate_token_count(text: str) -> int:
@@ -100,8 +108,10 @@ def build_final_report(
     translate_to_french: bool,
     diagnostic_coherence: bool = False,
     auto_translate_question_to_arabic: bool = AUTO_TRANSLATE_QUESTION_TO_ARABIC,
+    progress_callback: Optional[ProgressCallback] = None,
 ) -> str:
     extractor_model = None
+    _emit_progress(progress_callback, "Initialisation des modèles de recherche...", stage="init")
     extractor_model, extractor_tokenizer = instantiate_model(
         model_path=MODEL_EXTRACTOR_PATH,
         num_gpus=NUM_GPUS_EXTRACTOR,
@@ -110,6 +120,11 @@ def build_final_report(
 
     processing_question = question
     translation_applied = False
+    _emit_progress(
+        progress_callback,
+        "J'interprète la question en arabe pour améliorer la recherche dans les textes.",
+        stage="question",
+    )
     if auto_translate_question_to_arabic and not is_mostly_arabic(question):
         processing_question = translate_question_to_arabic(
             extractor_model,
@@ -120,6 +135,12 @@ def build_final_report(
     keywords = extract_keywords(extractor_model, processing_question)
     if len(keywords) < 4:
         raise ValueError(f"Too few valid Arabic keywords extracted: {keywords}")
+    _emit_progress(
+        progress_callback,
+        f"J'ai identifié les axes de recherche : {', '.join(keywords[:6])}.",
+        stage="keywords",
+        keywords=keywords,
+    )
 
     if hasattr(extractor_model, "close"):
         extractor_model.close()
@@ -132,10 +153,35 @@ def build_final_report(
         pass
 
     chunks, pages_by_key = load_chunks(JSON_INPUT_PATH)
+    _emit_progress(
+        progress_callback,
+        "Je parcours l'index des textes et je compare les passages les plus proches.",
+        stage="retrieval",
+    )
     retriever = HybridRetriever(chunks, embedding_model_name=EMBEDDING_MODEL)
 
     top_chunks = retriever.search(processing_question, keywords, top_k=TOP_K_CHUNKS)
     top_pages = top_pages_from_chunks(top_chunks, pages_by_key, top_k_pages=TOP_K_PAGES)
+    if top_pages:
+        authors = []
+        for page in top_pages:
+            author = str(page.get("author") or "Auteur inconnu")
+            if author not in authors:
+                authors.append(author)
+            if len(authors) >= 3:
+                break
+        _emit_progress(
+            progress_callback,
+            f"J'ai trouvé des passages pertinents chez {', '.join(authors)}.",
+            stage="pages_found",
+            top_pages=top_pages,
+        )
+        _emit_progress(
+            progress_callback,
+            "Je constitue une bibliographie de travail à partir de ces auteurs.",
+            stage="bibliography",
+            top_pages=top_pages,
+        )
     if hasattr(retriever, "close"):
         retriever.close()
     del retriever
@@ -190,6 +236,12 @@ def build_final_report(
         top_pages,
         reasoner_tokenizer,
         max_tokens=total_page_tokens + 256,
+    )
+    _emit_progress(
+        progress_callback,
+        "Je commence l'analyse des passages retenus.",
+        stage="generation",
+        top_pages=top_pages,
     )
     def _merge_verdicts(primary: Dict, adversarial: Dict) -> Dict[str, object]:
         primary_verdict = primary.get("verdict", "insufficient")
@@ -404,6 +456,11 @@ def build_final_report(
         translations = translate_pages_to_french(reasoner_model, top_pages)
         for page, tr in zip(top_pages, translations):
             page["translation_fr"] = tr
+    _emit_progress(
+        progress_callback,
+        "Je rédige une réponse structurée en français à partir des passages récupérés et je prépare son exportation.",
+        stage="export",
+    )
     report = print_final(
         question,
         keywords,
