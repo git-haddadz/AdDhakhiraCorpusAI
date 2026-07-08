@@ -1,4 +1,10 @@
-[العربية](README.md) | Français | [English](README.en.md)
+<h2 align="center">
+  <a href="README.md">العربية</a> | Français | <a href="README.en.md">English</a>
+</h2>
+
+<p align="center">
+  Une démo plug-and-play est disponible ici : <a href="#demo-get-started">Google Colab</a>.
+</p>
 
 # AdDhakhiraCorpusAI
 
@@ -153,7 +159,7 @@ hf download Qwen/Qwen3-Embedding-4B \
 
 5. Modifier `src/config.py`
 
-Pour la configuration `default`, renseigner :
+Utiliser les valeurs ci-dessous pour la configuration locale recommandée `default` :
 
 ```python
 LLM_BACKEND = "default"
@@ -172,12 +178,22 @@ VECTOR_INDEX_BACKEND = "faiss"
 
 Adapter `NUM_GPUS_EXTRACTOR` et `NUM_GPUS_REASONER` si nécessaire pour la machine.
 
-Pour les modes API, renseigner :
+Pour les modes API, conserver les mêmes paramètres de retrieval et modifier seulement le backend, les noms de modèles et la clé API correspondante :
 
-- `LLM_BACKEND`
-- `MODEL_EXTRACTOR_PATH`
-- `MODEL_REASONER_PATH`
-- la clé API correspondante
+```python
+# Choisir un backend API :
+# LLM_BACKEND = "gemini_api"
+# LLM_BACKEND = "openai_api"
+# LLM_BACKEND = "anthropic_api"
+
+MODEL_EXTRACTOR_PATH = "api-extractor-model-name"
+MODEL_REASONER_PATH = "api-reasoner-model-name"
+
+# Renseigner la clé API correspondante :
+# GEMINI_API_KEY = "your-gemini-api-key"
+# OPENAI_API_KEY = "your-openai-api-key"
+# ANTHROPIC_API_KEY = "your-anthropic-api-key"
+```
 
 6. Préparer l'index dense FAISS
 
@@ -226,6 +242,8 @@ http://localhost:7860
 ```
 
 L'interface lit les chemins des modèles locaux et les paramètres par défaut depuis `src/config.py`. Elle propose aussi une liste déroulante pour l'inférence locale, Gemini API, ChatGPT/OpenAI API et Claude/Anthropic API. Les clés API peuvent être saisies directement dans l'interface, et le retrieval dense par embeddings peut être désactivé avec la case à cocher si nécessaire.
+
+<a id="demo-get-started"></a>
 
 ## 6) Démo - démarrage rapide
 

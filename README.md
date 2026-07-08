@@ -1,4 +1,10 @@
-العربية | [Français](README.fr.md) | [English](README.en.md)
+<h2 align="center">
+  العربية | <a href="README.fr.md">Français</a> | <a href="README.en.md">English</a>
+</h2>
+
+<p align="center">
+  توجد تجربة جاهزة مباشرة هنا: <a href="#demo-get-started">Google Colab</a>.
+</p>
 
 # AdDhakhiraCorpusAI
 
@@ -153,7 +159,7 @@ hf download Qwen/Qwen3-Embedding-4B \
 
 5. تعديل `src/config.py`
 
-في إعداد `default`، اضبط القيم التالية:
+استعمل القيم التالية للإعداد المحلي الموصى به `default`:
 
 ```python
 LLM_BACKEND = "default"
@@ -172,12 +178,22 @@ VECTOR_INDEX_BACKEND = "faiss"
 
 عدّل `NUM_GPUS_EXTRACTOR` و `NUM_GPUS_REASONER` عند الحاجة حسب جهازك.
 
-في أوضاع API اضبط:
+في أوضاع API، أبقِ إعدادات retrieval كما هي وغيّر فقط backend وأسماء النماذج ومفتاح API الموافق:
 
-- `LLM_BACKEND`
-- `MODEL_EXTRACTOR_PATH`
-- `MODEL_REASONER_PATH`
-- مفتاح API الموافق
+```python
+# اختر backend واحداً للـ API:
+# LLM_BACKEND = "gemini_api"
+# LLM_BACKEND = "openai_api"
+# LLM_BACKEND = "anthropic_api"
+
+MODEL_EXTRACTOR_PATH = "api-extractor-model-name"
+MODEL_REASONER_PATH = "api-reasoner-model-name"
+
+# اضبط مفتاح API الموافق:
+# GEMINI_API_KEY = "your-gemini-api-key"
+# OPENAI_API_KEY = "your-openai-api-key"
+# ANTHROPIC_API_KEY = "your-anthropic-api-key"
+```
 
 6. بناء فهرس FAISS dense
 
@@ -226,6 +242,8 @@ http://localhost:7860
 ```
 
 تقرأ الواجهة مسارات النماذج المحلية والإعدادات الافتراضية من `src/config.py`. كما توفر قائمة لاختيار inference المحلي أو Gemini API أو ChatGPT/OpenAI API أو Claude/Anthropic API. يمكن إدخال مفاتيح API مباشرة في الواجهة، ويمكن تعطيل retrieval dense بالـ embeddings من خانة الاختيار عند الحاجة.
+
+<a id="demo-get-started"></a>
 
 ## ٦) تجربة سريعة
 
