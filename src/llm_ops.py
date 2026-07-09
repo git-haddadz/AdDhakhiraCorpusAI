@@ -12,6 +12,12 @@ from src.config import (
     REASONER_TOP_P,
     TRANSLATION_MAX_TOKENS,
 )
+try:
+    from src.config import KEYWORD_GENERATION_MAX_ATTEMPTS
+except ImportError:
+    # Keep existing local config.py files compatible after upgrading.
+    KEYWORD_GENERATION_MAX_ATTEMPTS = 3
+
 from src.llm_backend import (
     AnthropicBackend,
     CustomBackend,
@@ -70,6 +76,18 @@ def _coerce_keyword_candidates(raw) -> List[str]:
             return lines
         return _dedupe_arabic_terms(raw)
     return []
+
+
+def _filter_arabic_keywords(candidates: List[str]) -> List[str]:
+    filtered = []
+    seen = set()
+    for candidate in candidates:
+        keyword = re.sub(r"^\d+[\).\-\s]*", "", str(candidate)).strip()
+        if not keyword or not ARABIC_WORD_RE.search(keyword) or keyword in seen:
+            continue
+        seen.add(keyword)
+        filtered.append(keyword)
+    return filtered
 
 
 def _coerce_translation(raw, fallback: str) -> str:
@@ -165,29 +183,71 @@ Rules:
 - Prefer short base-form terms useful for retrieval.
 - Do not answer the question.
 """
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": question},
-    ]
-    try:
-        data = generate_json_output(model, messages, schema, max_tokens=256, temperature=0.0, top_p=1.0)
-        kws = _coerce_keyword_candidates(data)
-    except Exception:
-        raw = model.generate_text(messages, max_tokens=128, temperature=0.0, top_p=1.0)
-        kws = _coerce_keyword_candidates(raw)
+    collected: List[str] = []
+    attempts = max(1, int(KEYWORD_GENERATION_MAX_ATTEMPTS))
 
-    filtered = []
-    for kw in kws:
-        kw = re.sub(r"^\d+[\).\-\s]*", "", kw).strip()
-        if kw and ARABIC_WORD_RE.search(kw):
-            filtered.append(kw)
-    if len(filtered) < 4:
-        for term in _dedupe_arabic_terms(question):
-            if term not in filtered:
-                filtered.append(term)
-            if len(filtered) >= 10:
-                break
-    return filtered[:10]
+    for attempt in range(attempts):
+        retry_instruction = ""
+        if attempt:
+            retry_instruction = (
+                "\nA previous response was empty or invalid. "
+                "You must return a non-empty JSON list containing exactly 10 Arabic keywords."
+            )
+        messages = [
+            {"role": "system", "content": system_prompt + retry_instruction},
+            {"role": "user", "content": question},
+        ]
+        candidates: List[str] = []
+        try:
+            data = generate_json_output(
+                model,
+                messages,
+                schema,
+                max_tokens=256,
+                temperature=0.0,
+                top_p=1.0,
+            )
+            candidates = _coerce_keyword_candidates(data)
+        except Exception:
+            try:
+                raw = model.generate_text(
+                    messages,
+                    max_tokens=128,
+                    temperature=0.0,
+                    top_p=1.0,
+                )
+                candidates = _coerce_keyword_candidates(raw)
+            except Exception:
+                candidates = []
+
+        for keyword in _filter_arabic_keywords(candidates):
+            if keyword not in collected:
+                collected.append(keyword)
+        if len(collected) >= 4:
+            return collected[:10]
+
+    # Deterministic fallback: first reuse Arabic terms from the processed
+    # question, then pad with broad retrieval terms. The original question is
+    # still used as the dense query, so these generic terms only prevent an
+    # empty lexical query when every model attempt has failed.
+    fallback_terms = _dedupe_arabic_terms(question) + [
+        "مسألة",
+        "حكم",
+        "دليل",
+        "قول",
+        "فقه",
+        "مذهب",
+        "علماء",
+        "نص",
+        "بحث",
+        "شرعي",
+    ]
+    for keyword in fallback_terms:
+        if keyword not in collected:
+            collected.append(keyword)
+        if len(collected) >= 10:
+            break
+    return collected[:10]
 
 
 def translate_question_to_arabic(model: LLMBackend, question: str) -> str:

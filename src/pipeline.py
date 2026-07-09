@@ -17,7 +17,7 @@ from src.config import (
     NUM_GPUS_REASONER,
     REASONER_CONTEXT_SAFETY_TOKENS,
     TOP_K_CHUNKS,
-    TOP_K_PAGES,
+    TOP_K_SOURCES,
 )
 from src.data_loader import load_chunks
 from src.llm_ops import (
@@ -161,7 +161,11 @@ def build_final_report(
     retriever = HybridRetriever(chunks, embedding_model_name=EMBEDDING_MODEL)
 
     top_chunks = retriever.search(processing_question, keywords, top_k=TOP_K_CHUNKS)
-    top_pages = top_pages_from_chunks(top_chunks, pages_by_key, top_k_pages=TOP_K_PAGES)
+    top_pages = top_pages_from_chunks(
+        top_chunks,
+        pages_by_key,
+        top_k_sources=TOP_K_SOURCES,
+    )
     if top_pages:
         authors = []
         for page in top_pages:
@@ -224,7 +228,15 @@ def build_final_report(
     for p in top_pages:
         key = (str(p.get("page_number")), str(p.get("page_id")), str(p.get("part_index")))
         p["page_tokens"] = token_by_page.get(key)
-    reasoner_model_len = max(MIN_MODEL_LEN_REASONER, total_page_tokens + REASONER_CONTEXT_SAFETY_TOKENS)
+    # Account for page_ref headers, separators and bibliographic metadata in
+    # addition to the page bodies themselves. This margin grows with the
+    # variable number of pages retained before the fifth source is reached.
+    context_overhead_tokens = max(256, len(top_pages) * 64)
+    reasoning_context_tokens = total_page_tokens + context_overhead_tokens
+    reasoner_model_len = max(
+        MIN_MODEL_LEN_REASONER,
+        reasoning_context_tokens + REASONER_CONTEXT_SAFETY_TOKENS,
+    )
 
     reasoner_model, reasoner_tokenizer = instantiate_model(
         model_path=MODEL_REASONER_PATH,
@@ -235,7 +247,7 @@ def build_final_report(
     context, source_page_map = build_reasoning_context(
         top_pages,
         reasoner_tokenizer,
-        max_tokens=total_page_tokens + 256,
+        max_tokens=reasoning_context_tokens,
     )
     _emit_progress(
         progress_callback,
