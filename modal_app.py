@@ -1,6 +1,10 @@
 import subprocess
 import multiprocessing as mp
+import html
+import hmac
 import os
+import secrets
+import urllib.parse
 from pathlib import Path, PurePosixPath
 
 import modal
@@ -16,6 +20,8 @@ PORT = 7860
 GPU = "A100-80GB"
 VOLUME_NAME = "addhakhira-persist"
 AUTH_ENV_VAR = "ADDHAKHIRA_AUTH"
+AUTH_COOKIE_NAME = "addhakhira_session"
+_ACTIVE_SESSIONS = {}
 
 app = modal.App(APP_NAME)
 persist_volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
@@ -66,6 +72,156 @@ def _auth_credentials():
         credentials.append((username, password))
 
     return credentials or None
+
+
+def _auth_credentials_dict():
+    credentials = _auth_credentials()
+    if not credentials:
+        return None
+    return dict(credentials)
+
+
+def _login_page(error: str = "") -> str:
+    error_html = (
+        f'<p class="error">{html.escape(error)}</p>'
+        if error
+        else ""
+    )
+    return f"""
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connexion - AdDhakhiraCorpusAI</title>
+  <style>
+    body {{
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f8fafc;
+      color: #0f172a;
+    }}
+    main {{
+      width: min(420px, calc(100vw - 32px));
+      padding: 28px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      background: white;
+      box-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
+    }}
+    h1 {{
+      margin: 0 0 20px;
+      font-size: 1.35rem;
+      line-height: 1.25;
+    }}
+    label {{
+      display: block;
+      margin: 14px 0 6px;
+      font-weight: 650;
+    }}
+    input {{
+      width: 100%;
+      box-sizing: border-box;
+      min-height: 44px;
+      padding: 9px 11px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font: inherit;
+    }}
+    button {{
+      width: 100%;
+      min-height: 48px;
+      margin-top: 20px;
+      border: 0;
+      border-radius: 6px;
+      background: #0f766e;
+      color: white;
+      font: inherit;
+      font-weight: 750;
+      cursor: pointer;
+    }}
+    button:hover {{
+      background: #115e59;
+    }}
+    .error {{
+      margin: 0 0 14px;
+      color: #b91c1c;
+      font-weight: 650;
+    }}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Connexion à l'assistant</h1>
+    {error_html}
+    <form method="post" action="/login">
+      <label for="username">Utilisateur</label>
+      <input id="username" name="username" autocomplete="username" required>
+      <label for="password">Mot de passe</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <button type="submit">Se connecter</button>
+    </form>
+  </main>
+</body>
+</html>
+""".strip()
+
+
+def _build_authenticated_app(demo, allowed_paths):
+    from fastapi import FastAPI, Request
+    from fastapi.responses import HTMLResponse, RedirectResponse
+    import gradio as gr
+
+    credentials = _auth_credentials_dict()
+    web_app = FastAPI()
+
+    if credentials:
+
+        @web_app.middleware("http")
+        async def require_login(request: Request, call_next):
+            if request.url.path == "/login":
+                return await call_next(request)
+            session_id = request.cookies.get(AUTH_COOKIE_NAME, "")
+            if session_id in _ACTIVE_SESSIONS:
+                return await call_next(request)
+            return RedirectResponse("/login", status_code=303)
+
+        @web_app.get("/login", response_class=HTMLResponse)
+        async def login_form():
+            return HTMLResponse(_login_page())
+
+        @web_app.post("/login", response_class=HTMLResponse)
+        async def login_submit(request: Request):
+            body = (await request.body()).decode("utf-8", errors="replace")
+            form = urllib.parse.parse_qs(body, keep_blank_values=True)
+            username = form.get("username", [""])[0].strip()
+            password = form.get("password", [""])[0]
+            expected_password = credentials.get(username)
+
+            if not expected_password or not hmac.compare_digest(password, expected_password):
+                return HTMLResponse(_login_page("Identifiants incorrects."), status_code=401)
+
+            session_id = secrets.token_urlsafe(32)
+            _ACTIVE_SESSIONS[session_id] = username
+            response = RedirectResponse("/", status_code=303)
+            response.set_cookie(
+                AUTH_COOKIE_NAME,
+                session_id,
+                httponly=True,
+                secure=True,
+                samesite="lax",
+            )
+            return response
+
+    return gr.mount_gradio_app(
+        web_app,
+        demo,
+        path="/",
+        allowed_paths=allowed_paths,
+    )
 
 
 def _write_modal_config() -> None:
@@ -184,19 +340,11 @@ def gradio_webapp():
     except RuntimeError:
         pass
     _write_modal_config()
-    from fastapi import FastAPI
-    import gradio as gr
     from src.web_app import _allowed_paths, build_demo
 
     demo = build_demo()
     demo.queue(default_concurrency_limit=1)
-    return gr.mount_gradio_app(
-        FastAPI(),
-        demo,
-        path="/",
-        allowed_paths=_allowed_paths(),
-        auth=_auth_credentials(),
-    )
+    return _build_authenticated_app(demo, _allowed_paths())
 
 
 @app.local_entrypoint()
