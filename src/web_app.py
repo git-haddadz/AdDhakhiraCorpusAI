@@ -1,5 +1,4 @@
 import argparse
-import html
 import importlib
 import os
 import queue
@@ -8,7 +7,6 @@ import tempfile
 import threading
 import time
 import traceback
-import urllib.parse
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
@@ -30,8 +28,15 @@ API_KEY_BY_BACKEND = {
     "anthropic_api": "ANTHROPIC_API_KEY",
 }
 
+BACKEND_DISPLAY_NAMES = {
+    "default": "Ad-Dhakhira",
+    "gemini_api": "Gemini",
+    "openai_api": "ChatGPT",
+    "anthropic_api": "Claude",
+}
+
 DEFAULT_API_MODELS = {
-    "gemini_api": "gemini-2.5-flash",
+    "gemini_api": "gemini-3.5-flash",
     "openai_api": "gpt-4.1",
     "anthropic_api": "claude-sonnet-4-20250514",
 }
@@ -253,11 +258,10 @@ def _config_value(name: str, default=None):
     return getattr(base_config, name, default)
 
 
-def _model_for_backend(backend: str) -> str:
-    current_backend = _config_value("LLM_BACKEND", "default")
-    if current_backend == backend and backend != "default":
-        return str(_config_value("MODEL_REASONER_PATH", DEFAULT_API_MODELS[backend]))
-    return DEFAULT_API_MODELS[backend]
+INITIAL_LOCAL_MODEL_CONFIG = {
+    "MODEL_EXTRACTOR_PATH": _config_value("MODEL_EXTRACTOR_PATH"),
+    "MODEL_REASONER_PATH": _config_value("MODEL_REASONER_PATH"),
+}
 
 
 def _config_api_key_for_backend(backend: str) -> str:
@@ -278,19 +282,6 @@ def _allowed_paths() -> List[str]:
     gradio_tmp = Path(tempfile.gettempdir()) / "gradio"
     gradio_tmp.mkdir(parents=True, exist_ok=True)
     return [str(output_dir), str(gradio_tmp)]
-
-
-def _download_button_html(file_path: object) -> str:
-    if not file_path:
-        return ""
-    path = str(file_path)
-    file_url = f"/gradio_api/file={urllib.parse.quote(path, safe='/:')}"
-    return (
-        '<a class="download-synthesis-link" '
-        f'href="{html.escape(file_url, quote=True)}" download>'
-        "Télécharger la synthèse bibliographique"
-        "</a>"
-    )
 
 
 def _api_key_for_backend(backend: str, api_key: str) -> str:
@@ -315,11 +306,10 @@ def _runtime_config(
         "GEMINI_API_KEY": "",
         "OPENAI_API_KEY": "",
         "ANTHROPIC_API_KEY": "",
-        "MODEL_EXTRACTOR_PATH": _config_value("MODEL_EXTRACTOR_PATH"),
-        "MODEL_REASONER_PATH": _config_value("MODEL_REASONER_PATH"),
+        **INITIAL_LOCAL_MODEL_CONFIG,
     }
     if backend != "default":
-        model_name = _model_for_backend(backend)
+        model_name = DEFAULT_API_MODELS[backend]
         key_name = API_KEY_BY_BACKEND[backend]
         cfg.update(
             {
@@ -354,10 +344,10 @@ def _run_question(
 
     question = (question or "").strip()
     if not question:
-        yield "Saisis une question.", "", ""
+        yield "Saisis une question.", "", gr.update(value=None, visible="hidden")
         return
     if backend != "default" and not _api_key_for_backend(backend, api_key):
-        yield "La clé API est requise pour ce backend.", "", ""
+        yield "La clé API est requise pour ce backend.", "", gr.update(value=None, visible="hidden")
         return
 
     cfg = _runtime_config(
@@ -404,7 +394,11 @@ def _run_question(
                     elapsed_seconds=elapsed,
                     output_path=str(output_path),
                 )
-                result["status"] = f"Terminé en {elapsed:.1f}s avec {backend}. Synthèse prête au téléchargement."
+                backend_display_name = BACKEND_DISPLAY_NAMES.get(backend, backend)
+                result["status"] = (
+                    f"Terminé en {elapsed:.1f}s avec {backend_display_name}. "
+                    "Synthèse prête au téléchargement."
+                )
                 result["report"] = report
                 result["output_path"] = str(output_path)
             except Exception as exc:
@@ -427,12 +421,16 @@ def _run_question(
         yield (
             "Votre question est actuellement en queue. Veuillez laisser cette page ouverte ; une notification pourra vous prévenir quand l'assistant commencera à la traiter.",
             "",
-            "",
+            gr.update(value=None, visible="hidden"),
         )
         while _pipeline_lock.locked():
             time.sleep(8)
             filler_index += 1
-            yield _idle_status_message(current_stage, sources, filler_index), "", ""
+            yield (
+                _idle_status_message(current_stage, sources, filler_index),
+                "",
+                gr.update(value=None, visible="hidden"),
+            )
         worker = start_worker()
     else:
         current_stage = "startup"
@@ -440,7 +438,7 @@ def _run_question(
         yield (
             "Bienvenue. L'assistant démarre, prépare l'environnement puis charge les modèles. Merci de patienter...",
             "",
-            "",
+            gr.update(value=None, visible="hidden"),
         )
 
     while worker.is_alive() or not events.empty():
@@ -448,7 +446,11 @@ def _run_question(
             event = events.get(timeout=8)
         except queue.Empty:
             filler_index += 1
-            yield _idle_status_message(current_stage, sources, filler_index), "", ""
+            yield (
+                _idle_status_message(current_stage, sources, filler_index),
+                "",
+                gr.update(value=None, visible="hidden"),
+            )
             continue
 
         pages = event.get("top_pages")
@@ -464,13 +466,16 @@ def _run_question(
             filler_index += 1
 
         if message:
-            yield message, "", ""
+            yield message, "", gr.update(value=None, visible="hidden")
 
     worker.join()
     yield (
         str(result.get("status") or "Réponse terminée."),
         str(result.get("report") or ""),
-        _download_button_html(result.get("output_path")),
+        gr.update(
+            value=result.get("output_path"),
+            visible=bool(result.get("output_path")),
+        ),
     )
 
 
@@ -544,27 +549,7 @@ def build_demo():
 }
 """
 
-    css = """
-.download-synthesis-link {
-    display: flex;
-    align-items: center;
-    min-height: 64px;
-    width: 100%;
-    justify-content: center;
-    font-size: 1.05rem;
-    font-weight: 700;
-    border-radius: 8px;
-    color: white !important;
-    background: #0f766e;
-    text-decoration: none !important;
-    margin: 12px 0 18px;
-}
-.download-synthesis-link:hover {
-    background: #115e59;
-}
-"""
-
-    with gr.Blocks(title="AdDhakhiraCorpusAI", css=css) as demo:
+    with gr.Blocks(title="AdDhakhiraCorpusAI") as demo:
         gr.Markdown("## Assistant de recherche Malikite")
         gr.Markdown(
             """
@@ -604,13 +589,20 @@ Code source et explications détaillées : [AdDhakhiraCorpusAI](https://github.c
         question = gr.Textbox(label="Question", lines=4)
         submit = gr.Button("Envoyer", variant="primary")
         status = gr.Markdown(elem_id="run-status")
-        download = gr.HTML()
         answer = gr.HTML()
+        download = gr.DownloadButton(
+            label="Télécharger la synthèse bibliographique",
+            value=None,
+            variant="primary",
+            visible="hidden",
+        )
 
         backend.change(
             _toggle_backend_fields,
             inputs=backend,
             outputs=api_key,
+            queue=False,
+            show_progress="hidden",
         )
         submit.click(
             _run_question,
