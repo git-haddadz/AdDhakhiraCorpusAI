@@ -22,6 +22,7 @@ from src.config import (
 from src.data_loader import load_chunks
 from src.llm_ops import (
     assess_answer_consistency,
+    build_generation_debug_event,
     extract_keywords,
     generate_pedagogical_answer,
     instantiate_model,
@@ -132,7 +133,12 @@ def build_final_report(
         )
         translation_applied = processing_question != question
 
-    keywords = extract_keywords(extractor_model, processing_question)
+    keyword_diagnostic: Dict[str, object] = {}
+    keywords = extract_keywords(
+        extractor_model,
+        processing_question,
+        diagnostic=keyword_diagnostic,
+    )
     if len(keywords) < 4:
         raise ValueError(f"Too few valid Arabic keywords extracted: {keywords}")
     _emit_progress(
@@ -202,7 +208,13 @@ def build_final_report(
             "points": [],
             "limites": "Aucun extrait pertinent n'a été récupéré.",
         }
-        report = print_final(question, keywords, [], fallback)
+        report = print_final(
+            question,
+            keywords,
+            [],
+            fallback,
+            consistency_diagnostic=keyword_diagnostic if diagnostic_coherence else None,
+        )
         return report
 
     if extractor_tokenizer is None:
@@ -295,7 +307,9 @@ def build_final_report(
         )
         return _merge_verdicts(primary, adversarial)
 
-    def _safe_generate_answer(extra_rules: str = None) -> Tuple[Dict, bool]:
+    llm_debug_events = keyword_diagnostic.setdefault("llm_debug_events", [])
+
+    def _safe_generate_answer(stage: str, extra_rules: str = None) -> Tuple[Dict, bool]:
         try:
             generated = generate_pedagogical_answer(
                 reasoner_model,
@@ -303,8 +317,14 @@ def build_final_report(
                 context,
                 extra_system_rules=extra_rules,
             )
+            llm_debug_events.append(
+                build_generation_debug_event(stage, response=generated)
+            )
             return generated, False
-        except Exception:
+        except Exception as exc:
+            llm_debug_events.append(
+                build_generation_debug_event(stage, error=exc)
+            )
             fallback_answer = {
                 "status": "not_enough_context",
                 "reponse_courte": (
@@ -313,8 +333,8 @@ def build_final_report(
                 ),
                 "points": [],
                 "limites": (
-                    "Le modèle a produit une sortie JSON incomplète (troncature), "
-                    "malgré une augmentation progressive du budget de tokens."
+                    "La génération structurée n'a pas abouti. "
+                    "Le diagnostic technique contient la réponse ou l'erreur réelle du fournisseur."
                 ),
             }
             return fallback_answer, True
@@ -351,7 +371,7 @@ def build_final_report(
             "limites": failure_reason,
         }
 
-    answer, generation_failed = _safe_generate_answer()
+    answer, generation_failed = _safe_generate_answer("reasoner_initial")
     preserved_points = list(answer.get("points", [])) if isinstance(answer.get("points"), list) else []
     if generation_failed:
         consistency = {
@@ -363,6 +383,7 @@ def build_final_report(
     else:
         consistency = _evaluate_answer(answer)
     coherence_diag: Dict[str, object] = {
+        **keyword_diagnostic,
         "question_translation_enabled": auto_translate_question_to_arabic,
         "question_translation_applied": translation_applied,
         "question_pipeline_used": processing_question,
@@ -389,7 +410,7 @@ def build_final_report(
             "If a required condition is not explicitly verified in the question, respond conditionally.\n"
             f"Verifier issues: {issues}"
         )
-        answer, retry_generation_failed = _safe_generate_answer(extra_rules)
+        answer, retry_generation_failed = _safe_generate_answer("reasoner_retry", extra_rules)
         if retry_generation_failed:
             coherence_diag["retry_verdict"] = "insufficient"
             coherence_diag["retry_issues"] = ["Structured generation failed during retry."]
@@ -398,7 +419,7 @@ def build_final_report(
             coherence_diag["fallback_used"] = True
             answer = _build_evidence_aligned_fallback(
                 preserved_points,
-                "La régénération structurée a échoué (sortie JSON tronquée).",
+                "La régénération structurée a échoué ; consulter le diagnostic technique.",
             )
             report = print_final(
                 question,
@@ -430,7 +451,7 @@ def build_final_report(
                 "Do not keep mutually inconsistent statements between short answer and limits.\n"
                 f"Issues to resolve: {all_issues}"
             )
-            answer, final_generation_failed = _safe_generate_answer(final_pass_rules)
+            answer, final_generation_failed = _safe_generate_answer("reasoner_final", final_pass_rules)
             if final_generation_failed:
                 coherence_diag["final_pass_verdict"] = "insufficient"
                 coherence_diag["final_pass_primary_verdict"] = "insufficient"
@@ -439,7 +460,7 @@ def build_final_report(
                 coherence_diag["fallback_used"] = True
                 answer = _build_evidence_aligned_fallback(
                     preserved_points,
-                    "La passe finale a échoué (sortie JSON tronquée).",
+                    "La passe finale a échoué ; consulter le diagnostic technique.",
                 )
                 report = print_final(
                     question,
