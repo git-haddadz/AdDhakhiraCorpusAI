@@ -146,8 +146,11 @@ class HybridRetriever:
 def top_pages_from_chunks(
     top_chunks: List[Dict],
     pages_by_key: Dict[str, PageDoc],
-    top_k_pages: int,
+    top_k_sources: int,
 ) -> List[Dict]:
+    if top_k_sources <= 0:
+        return []
+
     per_page = {}
     for c in top_chunks:
         key = c["page_key"]
@@ -189,14 +192,23 @@ def top_pages_from_chunks(
 
     sorted_pages = sorted(aggregated_pages, key=lambda x: x["score"], reverse=True)
     results = []
+    selected_sources = set()
     for rec in sorted_pages:
-        if len(results) >= top_k_pages:
-            break
         page_doc = pages_by_key.get(rec["page_key"])
         if page_doc is None:
             continue
         if is_editorial_noise_page(page_doc.full_text, page_doc.section_path):
             continue
+
+        # source_id is the stable identifier of a bibliographic source. The
+        # page key keeps pages without source metadata distinct and prevents
+        # all unknown sources from being grouped together.
+        source_key = page_doc.source_id or page_doc.page_key
+        is_new_source = source_key not in selected_sources
+        if is_new_source and len(selected_sources) >= top_k_sources:
+            break
+        selected_sources.add(source_key)
+
         results.append(
             {
                 "score": rec["score"],
@@ -213,4 +225,6 @@ def top_pages_from_chunks(
                 "book_title": page_doc.title,
             }
         )
+        if is_new_source and len(selected_sources) == top_k_sources:
+            break
     return results

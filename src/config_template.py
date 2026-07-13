@@ -21,8 +21,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 JSON_INPUT_PATH = REPO_ROOT / "database"
 
 # === RAG parameters ===
-TOP_K_CHUNKS = 8
-TOP_K_PAGES = 5
+TOP_K_CHUNKS = 40
+TOP_K_SOURCES = 5
+KEYWORD_GENERATION_MAX_ATTEMPTS = 3
 
 # === Model runtime parameters ===
 MAX_MODEL_LEN_EXTRACTOR = 4096
