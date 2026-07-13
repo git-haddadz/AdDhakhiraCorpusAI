@@ -227,14 +227,13 @@ def extract_keywords(
                 "type": "array",
                 "items": {"type": "string", "minLength": 1},
                 "minItems": 10,
-                "maxItems": 10,
             }
         },
         "required": ["keywords"],
         "additionalProperties": False,
     }
     system_prompt = """You are an Islamic research assistant.
-Return exactly 10 Arabic keywords in JSON.
+Return at least 10 Arabic keywords in JSON.
 Rules:
 - Keep only Arabic keywords.
 - Prefer short base-form terms useful for retrieval.
@@ -266,7 +265,7 @@ Rules:
         if attempt:
             retry_instruction = (
                 "\nA previous response was empty or invalid. "
-                "You must return a non-empty JSON list containing exactly 10 Arabic keywords."
+                "You must return a JSON list containing at least 10 Arabic keywords."
             )
         messages = [
             {"role": "system", "content": system_prompt + retry_instruction},
@@ -335,8 +334,8 @@ Rules:
                 added_count += 1
         if added_count:
             modes_with_keywords.add(candidate_mode)
-        if len(collected) >= 4:
-            selected = collected[:10]
+        if len(collected) >= 10:
+            selected = list(collected)
             if len(modes_with_keywords) == 1:
                 extraction_mode = next(iter(modes_with_keywords))
             else:
@@ -374,7 +373,7 @@ Rules:
             collected.append(keyword)
         if len(collected) >= 10:
             break
-    selected = collected[:10]
+    selected = list(collected)
     if diagnostic is not None:
         diagnostic.update(
             {
