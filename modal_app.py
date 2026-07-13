@@ -1,5 +1,6 @@
 import subprocess
 import multiprocessing as mp
+import hashlib
 import html
 import hmac
 import os
@@ -21,7 +22,7 @@ GPU = "A100-80GB"
 VOLUME_NAME = "addhakhira-persist"
 AUTH_ENV_VAR = "ADDHAKHIRA_AUTH"
 AUTH_COOKIE_NAME = "addhakhira_session"
-_ACTIVE_SESSIONS = {}
+AUTH_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 7
 
 app = modal.App(APP_NAME)
 persist_volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
@@ -79,6 +80,37 @@ def _auth_credentials_dict():
     if not credentials:
         return None
     return dict(credentials)
+
+
+def _auth_cookie_secret() -> bytes:
+    return hashlib.sha256(os.environ.get(AUTH_ENV_VAR, "").encode("utf-8")).digest()
+
+
+def _make_auth_cookie(username: str) -> str:
+    nonce = secrets.token_urlsafe(18)
+    payload = f"{username}:{nonce}"
+    signature = hmac.new(
+        _auth_cookie_secret(),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"{payload}:{signature}"
+
+
+def _auth_cookie_username(cookie_value: str) -> str:
+    try:
+        username, nonce, signature = cookie_value.split(":", 2)
+    except ValueError:
+        return ""
+    payload = f"{username}:{nonce}"
+    expected_signature = hmac.new(
+        _auth_cookie_secret(),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(signature, expected_signature):
+        return ""
+    return username
 
 
 def _login_page(error: str = "") -> str:
@@ -184,8 +216,8 @@ def _build_authenticated_app(demo, allowed_paths):
         async def require_login(request: Request, call_next):
             if request.url.path == "/login":
                 return await call_next(request)
-            session_id = request.cookies.get(AUTH_COOKIE_NAME, "")
-            if session_id in _ACTIVE_SESSIONS:
+            username = _auth_cookie_username(request.cookies.get(AUTH_COOKIE_NAME, ""))
+            if username in credentials:
                 return await call_next(request)
             return RedirectResponse("/login", status_code=303)
 
@@ -204,12 +236,11 @@ def _build_authenticated_app(demo, allowed_paths):
             if not expected_password or not hmac.compare_digest(password, expected_password):
                 return HTMLResponse(_login_page("Identifiants incorrects."), status_code=401)
 
-            session_id = secrets.token_urlsafe(32)
-            _ACTIVE_SESSIONS[session_id] = username
             response = RedirectResponse("/", status_code=303)
             response.set_cookie(
                 AUTH_COOKIE_NAME,
-                session_id,
+                _make_auth_cookie(username),
+                max_age=AUTH_COOKIE_MAX_AGE_SECONDS,
                 httponly=True,
                 secure=True,
                 samesite="lax",
