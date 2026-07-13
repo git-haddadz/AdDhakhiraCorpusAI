@@ -12,6 +12,12 @@ from src.config import (
     REASONER_TOP_P,
     TRANSLATION_MAX_TOKENS,
 )
+try:
+    from src.config import KEYWORD_GENERATION_MAX_ATTEMPTS
+except ImportError:
+    # Keep existing generated/local config.py files compatible after upgrading.
+    KEYWORD_GENERATION_MAX_ATTEMPTS = 3
+
 from src.llm_backend import (
     AnthropicBackend,
     CustomBackend,
@@ -21,6 +27,59 @@ from src.llm_backend import (
     _extract_json_object,
 )
 from src.text_utils import ARABIC_WORD_RE
+
+
+DEBUG_RESPONSE_MAX_CHARS = 4000
+
+
+def _safe_debug_text(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list)):
+        text = json.dumps(value, ensure_ascii=False)
+    else:
+        text = str(value)
+    # Provider errors should not contain credentials, but mask common key shapes
+    # before placing any diagnostic text in a downloadable HTML file.
+    text = re.sub(r"\bsk-[A-Za-z0-9_-]{12,}\b", "[OPENAI_KEY_REDACTED]", text)
+    text = re.sub(r"\bAIza[A-Za-z0-9_-]{20,}\b", "[GEMINI_KEY_REDACTED]", text)
+    text = re.sub(
+        r"(?i)(api[_ -]?key\s*[:=]\s*)[^\s,;]+",
+        r"\1[API_KEY_REDACTED]",
+        text,
+    )
+    if len(text) > DEBUG_RESPONSE_MAX_CHARS:
+        return text[:DEBUG_RESPONSE_MAX_CHARS] + "\n… [réponse tronquée pour le debug]"
+    return text
+
+
+def build_generation_debug_event(
+    stage: str,
+    *,
+    response: object = None,
+    error: Optional[BaseException] = None,
+    cycle: Optional[int] = None,
+) -> Dict[str, object]:
+    event: Dict[str, object] = {"stage": stage}
+    if cycle is not None:
+        event["cycle"] = cycle
+    if error is not None:
+        event["error_type"] = getattr(error, "cause_type", None) or type(error).__name__
+        event["error_message"] = _safe_debug_text(
+            getattr(error, "cause_message", None) or str(error)
+        )
+        attempts = getattr(error, "attempts", None)
+        if attempts is not None:
+            event["json_attempts"] = attempts
+        provider = getattr(error, "provider", None)
+        if provider:
+            event["provider"] = provider
+        raw_response = getattr(error, "raw_response", None)
+        if raw_response:
+            event["response"] = _safe_debug_text(raw_response)
+    elif response is not None:
+        event["response"] = _safe_debug_text(response)
+    return event
 
 
 def _parse_jsonish(raw: str):
@@ -70,6 +129,18 @@ def _coerce_keyword_candidates(raw) -> List[str]:
             return lines
         return _dedupe_arabic_terms(raw)
     return []
+
+
+def _filter_arabic_keywords(candidates: List[str]) -> List[str]:
+    filtered = []
+    seen = set()
+    for candidate in candidates:
+        keyword = re.sub(r"^\d+[\).\-\s]*", "", str(candidate)).strip()
+        if not keyword or not ARABIC_WORD_RE.search(keyword) or keyword in seen:
+            continue
+        seen.add(keyword)
+        filtered.append(keyword)
+    return filtered
 
 
 def _coerce_translation(raw, fallback: str) -> str:
@@ -144,7 +215,11 @@ def generate_json_output(
     )
 
 
-def extract_keywords(model: LLMBackend, question: str) -> List[str]:
+def extract_keywords(
+    model: LLMBackend,
+    question: str,
+    diagnostic: Optional[Dict[str, object]] = None,
+) -> List[str]:
     schema = {
         "type": "object",
         "properties": {
@@ -165,29 +240,153 @@ Rules:
 - Prefer short base-form terms useful for retrieval.
 - Do not answer the question.
 """
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": question},
-    ]
-    try:
-        data = generate_json_output(model, messages, schema, max_tokens=256, temperature=0.0, top_p=1.0)
-        kws = _coerce_keyword_candidates(data)
-    except Exception:
-        raw = model.generate_text(messages, max_tokens=128, temperature=0.0, top_p=1.0)
-        kws = _coerce_keyword_candidates(raw)
+    collected: List[str] = []
+    attempts = max(1, int(KEYWORD_GENERATION_MAX_ATTEMPTS))
+    structured_calls = 0
+    text_calls = 0
+    modes_with_keywords = set()
+    debug_events: List[Dict[str, object]] = []
 
-    filtered = []
-    for kw in kws:
-        kw = re.sub(r"^\d+[\).\-\s]*", "", kw).strip()
-        if kw and ARABIC_WORD_RE.search(kw):
-            filtered.append(kw)
-    if len(filtered) < 4:
-        for term in _dedupe_arabic_terms(question):
-            if term not in filtered:
-                filtered.append(term)
-            if len(filtered) >= 10:
-                break
-    return filtered[:10]
+    if diagnostic is not None:
+        diagnostic.clear()
+        diagnostic.update(
+            {
+                "keyword_extraction_mode": None,
+                "keyword_extraction_attempt": None,
+                "keyword_structured_calls": 0,
+                "keyword_text_calls": 0,
+                "keyword_valid_before_fallback": 0,
+                "keyword_count": 0,
+                "llm_debug_events": debug_events,
+            }
+        )
+
+    for attempt in range(attempts):
+        retry_instruction = ""
+        if attempt:
+            retry_instruction = (
+                "\nA previous response was empty or invalid. "
+                "You must return a non-empty JSON list containing exactly 10 Arabic keywords."
+            )
+        messages = [
+            {"role": "system", "content": system_prompt + retry_instruction},
+            {"role": "user", "content": question},
+        ]
+        candidates: List[str] = []
+        candidate_mode = "structured_json"
+        structured_calls += 1
+        try:
+            data = generate_json_output(
+                model,
+                messages,
+                schema,
+                max_tokens=256,
+                temperature=0.0,
+                top_p=1.0,
+            )
+            candidates = _coerce_keyword_candidates(data)
+            debug_events.append(
+                build_generation_debug_event(
+                    "keywords_json",
+                    response=data,
+                    cycle=attempt + 1,
+                )
+            )
+        except Exception as exc:
+            debug_events.append(
+                build_generation_debug_event(
+                    "keywords_json",
+                    error=exc,
+                    cycle=attempt + 1,
+                )
+            )
+            candidate_mode = "text_fallback"
+            text_calls += 1
+            try:
+                raw = model.generate_text(
+                    messages,
+                    max_tokens=128,
+                    temperature=0.0,
+                    top_p=1.0,
+                )
+                debug_events.append(
+                    build_generation_debug_event(
+                        "keywords_text",
+                        response=raw,
+                        cycle=attempt + 1,
+                    )
+                )
+                candidates = _coerce_keyword_candidates(raw)
+            except Exception as exc:
+                debug_events.append(
+                    build_generation_debug_event(
+                        "keywords_text",
+                        error=exc,
+                        cycle=attempt + 1,
+                    )
+                )
+                candidates = []
+
+        valid_candidates = _filter_arabic_keywords(candidates)
+        added_count = 0
+        for keyword in valid_candidates:
+            if keyword not in collected:
+                collected.append(keyword)
+                added_count += 1
+        if added_count:
+            modes_with_keywords.add(candidate_mode)
+        if len(collected) >= 4:
+            selected = collected[:10]
+            if len(modes_with_keywords) == 1:
+                extraction_mode = next(iter(modes_with_keywords))
+            else:
+                extraction_mode = "mixed_model_outputs"
+            if diagnostic is not None:
+                diagnostic.update(
+                    {
+                        "keyword_extraction_mode": extraction_mode,
+                        "keyword_extraction_attempt": attempt + 1,
+                        "keyword_structured_calls": structured_calls,
+                        "keyword_text_calls": text_calls,
+                        "keyword_valid_before_fallback": len(collected),
+                        "keyword_count": len(selected),
+                    }
+                )
+            return selected
+
+    # The processed question remains the dense/BM25 query. These broad Arabic
+    # terms only guarantee a usable lexical fallback when every model call fails.
+    valid_before_fallback = len(collected)
+    fallback_terms = _dedupe_arabic_terms(question) + [
+        "مسألة",
+        "حكم",
+        "دليل",
+        "قول",
+        "فقه",
+        "مذهب",
+        "علماء",
+        "نص",
+        "بحث",
+        "شرعي",
+    ]
+    for keyword in fallback_terms:
+        if keyword not in collected:
+            collected.append(keyword)
+        if len(collected) >= 10:
+            break
+    selected = collected[:10]
+    if diagnostic is not None:
+        diagnostic.update(
+            {
+                "keyword_extraction_mode": "deterministic_fallback",
+                "keyword_extraction_attempt": attempts,
+                "keyword_structured_calls": structured_calls,
+                "keyword_text_calls": text_calls,
+                "keyword_valid_before_fallback": valid_before_fallback,
+                "keyword_count": len(selected),
+            }
+        )
+    return selected
 
 
 def translate_question_to_arabic(model: LLMBackend, question: str) -> str:

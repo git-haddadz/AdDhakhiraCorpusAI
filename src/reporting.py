@@ -18,11 +18,17 @@ def _h(value: object) -> str:
     return html.escape("" if value is None else str(value), quote=True)
 
 
-def _render_consistency_html(consistency_diagnostic: Optional[Dict[str, str]]) -> str:
+def _render_consistency_html(consistency_diagnostic: Optional[Dict[str, object]]) -> str:
     if not consistency_diagnostic:
         return ""
     rows = []
     keys = [
+        ("Mode d'extraction des mots-clés retenu", "keyword_extraction_mode"),
+        ("Cycles d'extraction effectués", "keyword_extraction_attempt"),
+        ("Appels d'extraction JSON", "keyword_structured_calls"),
+        ("Appels de fallback texte", "keyword_text_calls"),
+        ("Mots-clés valides issus du modèle", "keyword_valid_before_fallback"),
+        ("Nombre final de mots-clés", "keyword_count"),
         ("Traduction question activée", "question_translation_enabled"),
         ("Traduction question appliquée", "question_translation_applied"),
         ("Question utilisée par la pipeline", "question_pipeline_used"),
@@ -56,6 +62,35 @@ def _render_consistency_html(consistency_diagnostic: Optional[Dict[str, str]]) -
             issue_blocks.append(f"<h4>{_h(label)}</h4><ul>{items}</ul>")
 
     issue_html = "".join(issue_blocks) if issue_blocks else "<p>Aucune issue.</p>"
+
+    response_blocks = []
+    for event in consistency_diagnostic.get("llm_debug_events", []) or []:
+        if not isinstance(event, dict):
+            continue
+        title_parts = [str(event.get("stage") or "étape inconnue")]
+        if event.get("cycle") is not None:
+            title_parts.append(f"cycle {event.get('cycle')}")
+        if event.get("provider"):
+            title_parts.append(str(event.get("provider")))
+        metadata = []
+        if event.get("json_attempts") is not None:
+            metadata.append(f"Tentatives JSON internes : {event.get('json_attempts')}")
+        if event.get("error_type"):
+            metadata.append(f"Erreur : {event.get('error_type')}")
+        if event.get("error_message"):
+            metadata.append(str(event.get("error_message")))
+        metadata_html = "<br>".join(_h(item) for item in metadata)
+        response = event.get("response")
+        response_html = (
+            f"<h5>Réponse textuelle du LLM</h5><pre>{_h(response)}</pre>"
+            if response
+            else "<p>Aucune réponse textuelle reçue.</p>"
+        )
+        response_blocks.append(
+            f"<div class=\"llm-debug-event\"><h4>{_h(' — '.join(title_parts))}</h4>"
+            f"<p>{metadata_html}</p>{response_html}</div>"
+        )
+    responses_html = "".join(response_blocks) if response_blocks else "<p>Aucun appel LLM enregistré.</p>"
     return f"""
     <section class="tab-panel" id="panel-debug" role="tabpanel">
       <div class="card">
@@ -69,6 +104,10 @@ def _render_consistency_html(consistency_diagnostic: Optional[Dict[str, str]]) -
         </div>
         <div class="issues-block">
           {issue_html}
+        </div>
+        <div class="llm-debug-block">
+          <h3>Réponses et erreurs LLM</h3>
+          {responses_html}
         </div>
       </div>
     </section>
@@ -371,6 +410,21 @@ def print_final(
     .diag-table th {{ width: 42%; background: #f8fafc; }}
     .issues-block h4 {{ margin: 12px 0 6px; font-size: .9rem; }}
     .issues-block ul {{ margin: 0; padding-left: 18px; }}
+    .llm-debug-block {{ margin-top: 18px; }}
+    .llm-debug-event {{ margin-top: 12px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; }}
+    .llm-debug-event h4, .llm-debug-event h5 {{ margin: 0 0 8px; }}
+    .llm-debug-event p {{ margin: 6px 0; }}
+    @media (prefers-color-scheme: dark) {{
+      :root {{
+        color-scheme: dark;
+        --bg: #0f172a; --card: #172033; --text: #e2e8f0; --muted: #94a3b8;
+        --border: #334155; --accent: #38bdf8; --accent-soft: #0c4a6e; --ok: #34d399;
+      }}
+      .tab-btn, select {{ background: #172033; color: var(--text); }}
+      .tab-btn.active {{ color: #e0f2fe; }}
+      .notice {{ background: #431407; color: #fed7aa; border-color: #9a3412; }}
+      blockquote, summary, .diag-table th {{ background: #1e293b; }}
+    }}
     @media (max-width: 640px) {{
       .app {{ padding: 10px; }}
       .hero {{ border-radius: 12px; }}

@@ -8,8 +8,6 @@ from contextlib import contextmanager
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional
 
-import requests
-
 from src.config import (
     JSON_GENERATION_MAX_RETRIES,
     JSON_GENERATION_MAX_TOKEN_MULTIPLIER,
@@ -18,6 +16,26 @@ from src.config import (
 )
 
 LOGGER = logging.getLogger(__name__)
+
+
+class JSONGenerationError(RuntimeError):
+    """Expose failed JSON generation details to the optional HTML diagnostic."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        provider: str,
+        attempts: int,
+        raw_response: Optional[str] = None,
+        cause: Optional[BaseException] = None,
+    ):
+        super().__init__(message)
+        self.provider = provider
+        self.attempts = attempts
+        self.raw_response = raw_response
+        self.cause_type = type(cause).__name__ if cause is not None else None
+        self.cause_message = str(cause) if cause is not None else None
 
 
 @contextmanager
@@ -284,13 +302,13 @@ class CustomBackend(LLMBackend):
 
 class GeminiBackend(LLMBackend):
     def __init__(self, model_name: str, api_key: Optional[str] = None):
+        from google import genai
+
         key = api_key or os.environ.get("GEMINI_API_KEY")
         if not key:
             raise ValueError("GEMINI_API_KEY is required when LLM_BACKEND='gemini_api'.")
-        self.api_key = key
         self.model_name = model_name
-        self.session = requests.Session()
-        self.base_url = "https://generativelanguage.googleapis.com/v1beta/models"
+        self.client = genai.Client(api_key=key)
 
     @staticmethod
     def _extract_json(raw: str) -> Dict:
@@ -323,28 +341,28 @@ class GeminiBackend(LLMBackend):
         max_tokens: int,
         temperature: float,
         top_p: float,
+        response_schema: Optional[Dict] = None,
     ) -> str:
         parts = self._messages_to_parts(messages)
-        url = f"{self.base_url}/{self.model_name}:generateContent?key={self.api_key}"
-        payload = {
-            "contents": [{"parts": [{"text": parts["user"]}]}],
-            "generationConfig": {
-                "temperature": float(temperature),
-                "topP": float(top_p),
-                "maxOutputTokens": int(max(16, max_tokens)),
-            },
+        config = {
+            "temperature": float(temperature),
+            "top_p": float(top_p),
+            "max_output_tokens": int(max(16, max_tokens)),
         }
         if parts["system"]:
-            payload["systemInstruction"] = {"parts": [{"text": parts["system"]}]}
+            config["system_instruction"] = parts["system"]
+        if response_schema is not None:
+            config["response_mime_type"] = "application/json"
+            config["response_json_schema"] = response_schema
 
-        resp = self.session.post(url, json=payload, timeout=180)
-        if resp.status_code >= 400:
-            raise RuntimeError(f"Gemini API error {resp.status_code}: {resp.text[:1200]}")
-        data = resp.json()
-        try:
-            return data["candidates"][0]["content"]["parts"][0]["text"].strip()
-        except Exception as exc:
-            raise RuntimeError(f"Unexpected Gemini response: {json.dumps(data)[:1200]}") from exc
+        response = self.client.models.generate_content(
+            model=self.model_name,
+            contents=parts["user"],
+            config=config,
+        )
+        if not response.text:
+            raise RuntimeError("Gemini SDK returned an empty text response.")
+        return response.text.strip()
 
     def generate_json(
         self,
@@ -354,30 +372,60 @@ class GeminiBackend(LLMBackend):
         temperature: float = 0.0,
         top_p: float = 1.0,
     ) -> Dict:
-        schema_note = {
-            "role": "system",
-            "content": (
-                "Return valid JSON only. Do not use markdown fences.\n"
-                "Follow this JSON Schema exactly:\n"
-                f"{json.dumps(schema, ensure_ascii=False)}"
-            ),
-        }
-        attempts = 0
         current_max_tokens = max(64, int(max_tokens))
-        while True:
-            attempts += 1
-            raw = self._generate_raw(
-                messages + [schema_note],
-                max_tokens=current_max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-            )
+        token_limit = max(
+            current_max_tokens,
+            int(max_tokens) * int(JSON_GENERATION_MAX_TOKEN_MULTIPLIER),
+        )
+        attempt_idx = 0
+        last_error = None
+        last_raw = None
+        while attempt_idx < int(JSON_GENERATION_MAX_RETRIES):
+            attempt_idx += 1
+            try:
+                raw = self._generate_raw(
+                    messages,
+                    max_tokens=min(current_max_tokens, token_limit),
+                    temperature=temperature,
+                    top_p=top_p,
+                    response_schema=schema,
+                )
+                last_raw = raw
+            except Exception as exc:
+                raise JSONGenerationError(
+                    f"Gemini request failed during JSON generation: {exc}",
+                    provider="Gemini",
+                    attempts=attempt_idx,
+                    cause=exc,
+                ) from exc
             try:
                 return self._extract_json(raw)
-            except Exception:
-                if attempts >= 4:
-                    raise
-                current_max_tokens = max(current_max_tokens + 1, int(current_max_tokens * 1.4))
+            except json.JSONDecodeError as exc:
+                last_error = exc
+                LOGGER.error(
+                    "JSON parsing failed in GeminiBackend.generate_json (attempt %s, max_tokens=%s): %s at line=%s col=%s pos=%s",
+                    attempt_idx,
+                    min(current_max_tokens, token_limit),
+                    exc.msg,
+                    exc.lineno,
+                    exc.colno,
+                    exc.pos,
+                )
+                LOGGER.error("---- RAW_GEMINI_OUTPUT_ATTEMPT_%s_START ----", attempt_idx)
+                LOGGER.error(raw)
+                LOGGER.error("---- RAW_GEMINI_OUTPUT_ATTEMPT_%s_END ----", attempt_idx)
+                current_max_tokens = min(
+                    token_limit,
+                    max(current_max_tokens + 1, int(current_max_tokens * 1.5)),
+                )
+        raise JSONGenerationError(
+            "Gemini did not return valid JSON after "
+            f"{JSON_GENERATION_MAX_RETRIES} attempts; last error: {last_error}",
+            provider="Gemini",
+            attempts=attempt_idx,
+            raw_response=last_raw,
+            cause=last_error,
+        )
 
     def generate_text(
         self,
@@ -401,18 +449,18 @@ class GeminiBackend(LLMBackend):
         return None
 
     def close(self) -> None:
-        self.session.close()
+        self.client.close()
 
 
 class OpenAIBackend(LLMBackend):
     def __init__(self, model_name: str, api_key: Optional[str] = None):
+        from openai import OpenAI
+
         key = api_key or os.environ.get("OPENAI_API_KEY")
         if not key:
             raise ValueError("OPENAI_API_KEY is required when LLM_BACKEND='openai_api'.")
-        self.api_key = key
         self.model_name = model_name
-        self.session = requests.Session()
-        self.base_url = "https://api.openai.com/v1/chat/completions"
+        self.client = OpenAI(api_key=key, timeout=180.0)
 
     def _generate_raw(
         self,
@@ -422,7 +470,7 @@ class OpenAIBackend(LLMBackend):
         top_p: float,
         response_format: Optional[Dict] = None,
     ) -> str:
-        payload = {
+        params = {
             "model": self.model_name,
             "messages": messages,
             "temperature": float(temperature),
@@ -430,23 +478,12 @@ class OpenAIBackend(LLMBackend):
             "max_tokens": int(max(16, max_tokens)),
         }
         if response_format:
-            payload["response_format"] = response_format
-        resp = self.session.post(
-            self.base_url,
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-            timeout=180,
-        )
-        if resp.status_code >= 400:
-            raise RuntimeError(f"OpenAI API error {resp.status_code}: {resp.text[:1200]}")
-        data = resp.json()
-        try:
-            return data["choices"][0]["message"]["content"].strip()
-        except Exception as exc:
-            raise RuntimeError(f"Unexpected OpenAI response: {json.dumps(data)[:1200]}") from exc
+            params["response_format"] = response_format
+        completion = self.client.chat.completions.create(**params)
+        content = completion.choices[0].message.content
+        if not content:
+            raise RuntimeError("OpenAI SDK returned an empty text response.")
+        return content.strip()
 
     def generate_json(
         self,
@@ -464,23 +501,60 @@ class OpenAIBackend(LLMBackend):
                 f"{json.dumps(schema, ensure_ascii=False)}"
             ),
         }
-        attempts = 0
         current_max_tokens = max(64, int(max_tokens))
-        while True:
-            attempts += 1
-            raw = self._generate_raw(
-                messages + [schema_note],
-                max_tokens=current_max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                response_format={"type": "json_object"},
-            )
+        token_limit = max(
+            current_max_tokens,
+            int(max_tokens) * int(JSON_GENERATION_MAX_TOKEN_MULTIPLIER),
+        )
+        attempt_idx = 0
+        last_error = None
+        last_raw = None
+        while attempt_idx < int(JSON_GENERATION_MAX_RETRIES):
+            attempt_idx += 1
+            try:
+                raw = self._generate_raw(
+                    messages + [schema_note],
+                    max_tokens=min(current_max_tokens, token_limit),
+                    temperature=temperature,
+                    top_p=top_p,
+                    response_format={"type": "json_object"},
+                )
+                last_raw = raw
+            except Exception as exc:
+                raise JSONGenerationError(
+                    f"OpenAI request failed during JSON generation: {exc}",
+                    provider="OpenAI",
+                    attempts=attempt_idx,
+                    cause=exc,
+                ) from exc
             try:
                 return _extract_json_object(raw)
-            except Exception:
-                if attempts >= int(JSON_GENERATION_MAX_RETRIES):
-                    raise
-                current_max_tokens = max(current_max_tokens + 1, int(current_max_tokens * 1.4))
+            except json.JSONDecodeError as exc:
+                last_error = exc
+                LOGGER.error(
+                    "JSON parsing failed in OpenAIBackend.generate_json (attempt %s, max_tokens=%s): %s at line=%s col=%s pos=%s",
+                    attempt_idx,
+                    min(current_max_tokens, token_limit),
+                    exc.msg,
+                    exc.lineno,
+                    exc.colno,
+                    exc.pos,
+                )
+                LOGGER.error("---- RAW_OPENAI_OUTPUT_ATTEMPT_%s_START ----", attempt_idx)
+                LOGGER.error(raw)
+                LOGGER.error("---- RAW_OPENAI_OUTPUT_ATTEMPT_%s_END ----", attempt_idx)
+                current_max_tokens = min(
+                    token_limit,
+                    max(current_max_tokens + 1, int(current_max_tokens * 1.5)),
+                )
+        raise JSONGenerationError(
+            "OpenAI did not return valid JSON after "
+            f"{JSON_GENERATION_MAX_RETRIES} attempts; last error: {last_error}",
+            provider="OpenAI",
+            attempts=attempt_idx,
+            raw_response=last_raw,
+            cause=last_error,
+        )
 
     def generate_text(
         self,
@@ -504,18 +578,18 @@ class OpenAIBackend(LLMBackend):
         return None
 
     def close(self) -> None:
-        self.session.close()
+        self.client.close()
 
 
 class AnthropicBackend(LLMBackend):
     def __init__(self, model_name: str, api_key: Optional[str] = None):
+        from anthropic import Anthropic
+
         key = api_key or os.environ.get("ANTHROPIC_API_KEY")
         if not key:
             raise ValueError("ANTHROPIC_API_KEY is required when LLM_BACKEND='anthropic_api'.")
-        self.api_key = key
         self.model_name = model_name
-        self.session = requests.Session()
-        self.base_url = "https://api.anthropic.com/v1/messages"
+        self.client = Anthropic(api_key=key, timeout=180.0)
 
     @staticmethod
     def _split_messages(messages: List[Dict[str, str]]) -> Dict[str, object]:
@@ -543,7 +617,7 @@ class AnthropicBackend(LLMBackend):
         top_p: float,
     ) -> str:
         parts = self._split_messages(messages)
-        payload = {
+        params = {
             "model": self.model_name,
             "messages": parts["messages"],
             "max_tokens": int(max(16, max_tokens)),
@@ -551,28 +625,16 @@ class AnthropicBackend(LLMBackend):
             "top_p": float(top_p),
         }
         if parts["system"]:
-            payload["system"] = parts["system"]
-        resp = self.session.post(
-            self.base_url,
-            headers={
-                "x-api-key": self.api_key,
-                "anthropic-version": "2023-06-01",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-            timeout=180,
-        )
-        if resp.status_code >= 400:
-            raise RuntimeError(f"Anthropic API error {resp.status_code}: {resp.text[:1200]}")
-        data = resp.json()
-        try:
-            return "".join(
-                part.get("text", "")
-                for part in data.get("content", [])
-                if part.get("type") == "text"
-            ).strip()
-        except Exception as exc:
-            raise RuntimeError(f"Unexpected Anthropic response: {json.dumps(data)[:1200]}") from exc
+            params["system"] = parts["system"]
+        message = self.client.messages.create(**params)
+        text = "".join(
+            block.text
+            for block in message.content
+            if getattr(block, "type", None) == "text"
+        ).strip()
+        if not text:
+            raise RuntimeError("Anthropic SDK returned an empty text response.")
+        return text
 
     def generate_json(
         self,
@@ -590,22 +652,59 @@ class AnthropicBackend(LLMBackend):
                 f"{json.dumps(schema, ensure_ascii=False)}"
             ),
         }
-        attempts = 0
         current_max_tokens = max(64, int(max_tokens))
-        while True:
-            attempts += 1
-            raw = self._generate_raw(
-                messages + [schema_note],
-                max_tokens=current_max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-            )
+        token_limit = max(
+            current_max_tokens,
+            int(max_tokens) * int(JSON_GENERATION_MAX_TOKEN_MULTIPLIER),
+        )
+        attempt_idx = 0
+        last_error = None
+        last_raw = None
+        while attempt_idx < int(JSON_GENERATION_MAX_RETRIES):
+            attempt_idx += 1
+            try:
+                raw = self._generate_raw(
+                    messages + [schema_note],
+                    max_tokens=min(current_max_tokens, token_limit),
+                    temperature=temperature,
+                    top_p=top_p,
+                )
+                last_raw = raw
+            except Exception as exc:
+                raise JSONGenerationError(
+                    f"Anthropic request failed during JSON generation: {exc}",
+                    provider="Anthropic",
+                    attempts=attempt_idx,
+                    cause=exc,
+                ) from exc
             try:
                 return _extract_json_object(raw)
-            except Exception:
-                if attempts >= int(JSON_GENERATION_MAX_RETRIES):
-                    raise
-                current_max_tokens = max(current_max_tokens + 1, int(current_max_tokens * 1.4))
+            except json.JSONDecodeError as exc:
+                last_error = exc
+                LOGGER.error(
+                    "JSON parsing failed in AnthropicBackend.generate_json (attempt %s, max_tokens=%s): %s at line=%s col=%s pos=%s",
+                    attempt_idx,
+                    min(current_max_tokens, token_limit),
+                    exc.msg,
+                    exc.lineno,
+                    exc.colno,
+                    exc.pos,
+                )
+                LOGGER.error("---- RAW_ANTHROPIC_OUTPUT_ATTEMPT_%s_START ----", attempt_idx)
+                LOGGER.error(raw)
+                LOGGER.error("---- RAW_ANTHROPIC_OUTPUT_ATTEMPT_%s_END ----", attempt_idx)
+                current_max_tokens = min(
+                    token_limit,
+                    max(current_max_tokens + 1, int(current_max_tokens * 1.5)),
+                )
+        raise JSONGenerationError(
+            "Anthropic did not return valid JSON after "
+            f"{JSON_GENERATION_MAX_RETRIES} attempts; last error: {last_error}",
+            provider="Anthropic",
+            attempts=attempt_idx,
+            raw_response=last_raw,
+            cause=last_error,
+        )
 
     def generate_text(
         self,
@@ -629,4 +728,4 @@ class AnthropicBackend(LLMBackend):
         return None
 
     def close(self) -> None:
-        self.session.close()
+        self.client.close()
